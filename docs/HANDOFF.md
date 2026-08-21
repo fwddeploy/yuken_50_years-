@@ -6,7 +6,7 @@ Updated: 2026-08-21
 
 This is a single-event internal coordination PWA for Yuken India Limited's 50-year Golden Jubilee. It is not a reusable event platform and it is not a guest-facing application. About 40 internal coordinators are expected, with a capacity target of 100 concurrent sessions.
 
-Do not rebuild from the historical HTML prototypes. The tracked Vinext/React/Cloudflare application is the authoritative implementation. `DECISIONS.md` explains why, `CONTRACT.md` defines required behaviour, and `STATE.md` separates reproduced evidence from unproven work.
+The tracked Vinext/React/Cloudflare application is the production implementation, but its visual structure must remain faithful to the approved v52/v64/v66 prototypes. Read `UI-SOURCE-OF-TRUTH.md` before changing a frontend screen. `DECISIONS.md` explains product decisions, `CONTRACT.md` defines required behaviour, and `STATE.md` separates reproduced evidence from unproven work.
 
 ## Live and source locations
 

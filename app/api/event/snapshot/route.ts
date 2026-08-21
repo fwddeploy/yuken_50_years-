@@ -1,4 +1,4 @@
-import { desc, eq } from "drizzle-orm";
+import { and, desc, eq } from "drizzle-orm";
 import { getDb } from "../../../../db";
 import { budgetEntries, jobAssignments, jobStates, jobUpdateAttachments, jobUpdates, jobs, people, sections, syncBatches } from "../../../../db/schema";
 import { authenticateRequest } from "../../../../src/server/session";
@@ -15,7 +15,10 @@ export async function GET(request: Request) {
     db.select({ id: jobUpdateAttachments.id, updateId: jobUpdateAttachments.updateId, fileName: jobUpdateAttachments.fileName, contentType: jobUpdateAttachments.contentType, sizeBytes: jobUpdateAttachments.sizeBytes }).from(jobUpdateAttachments).orderBy(desc(jobUpdateAttachments.createdAt)).limit(750),
     db.select({ id: sections.id, number: sections.sectionNumber, heading: sections.heading }).from(sections).where(eq(sections.active, true)).orderBy(sections.sectionNumber),
     db.select({ status: syncBatches.status, sourceVersion: syncBatches.sourceVersion, completedAt: syncBatches.completedAt, summary: syncBatches.summary }).from(syncBatches).orderBy(desc(syncBatches.createdAt)).limit(1),
-    user.isCore ? db.select({ id: people.id, initials: people.initials, fullName: people.fullName }).from(people).where(eq(people.active, true)).orderBy(people.fullName) : Promise.resolve([]),
+    db.select({ id: people.id, initials: people.initials, fullName: people.fullName })
+      .from(people)
+      .where(and(eq(people.active, true), eq(people.isCore, true)))
+      .orderBy(people.fullName),
     user.isCore ? db.select().from(budgetEntries).orderBy(desc(budgetEntries.createdAt)) : Promise.resolve([]),
   ]);
   const assignments = new Map<string, typeof assignmentRows>();

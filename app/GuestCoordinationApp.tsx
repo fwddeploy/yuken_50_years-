@@ -8,6 +8,7 @@ import { previewGuestSnapshot, type GuestAgendaItem, type GuestGroup, type Guest
 
 type GuestTab = "mine" | "invitations" | "guests" | "travel" | "stays";
 type SendAudience = { title: string; purpose: MessagePurpose; guests: GuestRecord[]; group?: GuestGroup; date?: string; event?: GuestEvent; travelPlanId?: string };
+type EventTeamMember = { id: string; initials: string; fullName: string };
 
 const guestTabs: { id: GuestTab; icon: string; label: string }[] = [
   { id: "mine", icon: "◎", label: "Mine" },
@@ -19,7 +20,7 @@ const guestTabs: { id: GuestTab; icon: string; label: string }[] = [
 
 const emptySnapshot: GuestSnapshot = { guests: [], categories: [], groups: [], travelPlans: [], hotels: [] };
 
-export default function GuestCoordinationApp({ user, back, signOut }: { user: EventUser; back: () => void; signOut: () => void }) {
+export default function GuestCoordinationApp({ user, team, back, signOut }: { user: EventUser; team: EventTeamMember[]; back: () => void; signOut: () => void }) {
   const preview = user.id === previewUser.id;
   const [tab, setTab] = useState<GuestTab>("mine");
   const [snapshot, setSnapshot] = useState<GuestSnapshot>(() => preview ? previewGuestSnapshot : emptySnapshot);
@@ -135,9 +136,10 @@ export default function GuestCoordinationApp({ user, back, signOut }: { user: Ev
   const title = { mine: "My guest groups", invitations: "Invitations", guests: "Guest directory", travel: "Guest travel", stays: "Hotels and rooms" }[tab];
   return <main className="eventApp guestApp">
     <GuestHeader title={title} user={user} back={back} signOut={signOut} openSheetSync={() => setSheetSyncOpen(true)} />
+    <GuestCommitteeStrip team={team} />
     <div className="eventBody guestBody">
       {loading ? <GuestLoading /> : <>
-        {tab === "mine" && <MineView user={user} snapshot={snapshot} send={setSendAudience} saveAgenda={saveAgenda} />}
+        {tab === "mine" && <MineView user={user} snapshot={snapshot} send={setSendAudience} saveAgenda={saveAgenda} saveTravel={saveTravel} />}
         {tab === "invitations" && <InvitationsView user={user} preview={preview} snapshot={snapshot} send={setSendAudience} notify={setToast} />}
         {tab === "guests" && <GuestsView snapshot={snapshot} save={saveGuest} archive={archiveGuest} />}
         {tab === "travel" && <TravelView snapshot={snapshot} save={saveTravel} send={setSendAudience} />}
@@ -154,29 +156,81 @@ export default function GuestCoordinationApp({ user, back, signOut }: { user: Ev
 }
 
 function GuestHeader({ title, user, back, signOut, openSheetSync }: { title: string; user: EventUser; back: () => void; signOut: () => void; openSheetSync: () => void }) {
-  return <header className="eventHeader guestHeader"><div className="headerBrand"><span>YIL <b>50</b></span><div><strong>{title}</strong><small>Guest coordination</small></div></div><details className="userMenu"><summary aria-label="Open account menu"><span>{user.initials}</span></summary><div><b>{user.fullName}</b><small>{user.responsibility}</small>{user.isCore && <button onClick={openSheetSync}>Sync Master Sheet</button>}<button onClick={back}>Switch work area</button><button onClick={signOut}>Sign out</button></div></details></header>;
+  return <header className="eventHeader guestHeader"><div className="headerBrand"><span>YIL <b>50</b></span><div><strong>{title}</strong><small>Guest coordination</small></div></div><div className="headerActions"><details className="userMenu"><summary aria-label="Open account menu"><span>{user.initials}</span></summary><div><b>{user.fullName}</b><small>{user.responsibility}</small>{user.isCore && <button onClick={openSheetSync}>Sync Master Sheet</button>}<button onClick={back}>Switch work area</button><button onClick={signOut}>Sign out</button></div></details></div></header>;
+}
+
+function GuestCommitteeStrip({ team }: { team: EventTeamMember[] }) {
+  if (!team.length) return null;
+  return <div className="committeeStrip guestCommitteeStrip"><span>Core<br />committee</span><div>{team.map(person => <span key={person.id} title={person.fullName} aria-label={person.fullName}>{person.initials}</span>)}</div></div>;
 }
 
 function GuestLoading() {
   return <div className="guestLoading" role="status"><span className="miniMark">YIL <b>50</b></span><p>Loading guest coordination…</p></div>;
 }
 
-function MineView({ user, snapshot, send, saveAgenda }: { user: EventUser; snapshot: GuestSnapshot; send: (audience: SendAudience) => void; saveAgenda: (groupId: string, date: string, items: GuestAgendaItem[]) => void | Promise<void> }) {
-  const availableDates = useMemo(() => [...new Set(snapshot.groups.flatMap(group => group.agenda.map(item => item.date)))].sort(), [snapshot.groups]);
+function MineView({ user, snapshot, send, saveAgenda, saveTravel }: { user: EventUser; snapshot: GuestSnapshot; send: (audience: SendAudience) => void; saveAgenda: (groupId: string, date: string, items: GuestAgendaItem[]) => void | Promise<void>; saveTravel: (plan: GuestTravelPlan) => void | Promise<void> }) {
+  const groups = useMemo(() => snapshot.groups.filter(group => user.isCore || group.primaryPersonId === user.id || group.secondaryPersonId === user.id), [snapshot.groups, user]);
+  const [groupId, setGroupId] = useState("");
+  const [segment, setSegment] = useState<"agenda" | "travel">("agenda");
   const [dateIndex, setDateIndex] = useState(0);
-  const [editing, setEditing] = useState<GuestGroup | null>(null);
-  const selectedDate = availableDates[dateIndex] ?? "2026-11-15";
-  const groups = snapshot.groups.filter(group => user.isCore || group.primaryPersonId === user.id || group.secondaryPersonId === user.id);
+  const [editingAgenda, setEditingAgenda] = useState(false);
+  const [editingTravel, setEditingTravel] = useState<GuestTravelPlan | null>(null);
+  const activeGroupId = groups.some(item => item.id === groupId) ? groupId : groups[0]?.id ?? "";
+  const group = groups.find(item => item.id === activeGroupId);
+  const guests = group ? snapshot.guests.filter(guest => guest.groupId === group.id) : [];
+  const guestCategoryIds = new Set(guests.map(guest => guest.categoryId));
+  const travelPlans = snapshot.travelPlans.filter(plan => plan.categories.some(category => guestCategoryIds.has(category.id)));
+  const availableDates = useMemo(() => [...new Set([...(group?.agenda.map(item => item.date) ?? []), ...travelPlans.map(plan => plan.date), "2026-11-15", "2026-11-18"])].sort(), [group, travelPlans]);
+  const safeDateIndex = Math.min(dateIndex, Math.max(availableDates.length - 1, 0));
+  const selectedDate = availableDates[safeDateIndex] ?? "2026-11-15";
+  const agenda = (group?.agenda ?? []).filter(item => item.date === selectedDate).sort((a, b) => a.time.localeCompare(b.time));
+  const dayTravel = travelPlans.filter(plan => plan.date === selectedDate);
+  const reachable = guests.filter(guest => guest.phone).length;
+  const agendaMessage = group ? buildAgendaPreview(group, selectedDate, agenda) : "";
+  const travelMessage = group ? buildTravelPreview(group, selectedDate, dayTravel) : "";
+
+  function removeAgendaLine(id: string) {
+    if (!group || !window.confirm("Remove this agenda line? It will no longer appear in the group message.")) return;
+    void saveAgenda(group.id, selectedDate, agenda.filter(item => item.id !== id));
+  }
+
+  async function copy(text: string) {
+    await navigator.clipboard.writeText(text);
+  }
+
+  function addTravel() {
+    const categories = snapshot.categories.filter(category => guestCategoryIds.has(category.id));
+    setEditingTravel({ id: crypto.randomUUID(), name: "", event: selectedDate === "2026-11-18" ? "taj" : "malur", date: selectedDate, mode: "Coach", routeName: "", categories, stops: [{ id: crypto.randomUUID(), order: 1, time: "09:00", place: "" }] });
+  }
+
+  if (!group) return <div className="quietState"><b>No guest group is assigned to you</b><span>A core committee member can make you the primary or secondary coordinator for a group.</span></div>;
+
   return <>
-    <section className="guestHero mineHero"><div><p className="eyebrow">Your daily guest brief</p><h1>{formatDate(selectedDate)}</h1><p>Only groups assigned to you are shown.</p></div><div className="dateStepper" aria-label="Choose agenda date"><button aria-label="Previous agenda date" disabled={dateIndex === 0} onClick={() => setDateIndex(value => Math.max(0, value - 1))}>‹</button><span><b>{dateIndex + 1}</b><small>of {Math.max(availableDates.length, 1)} days</small></span><button aria-label="Next agenda date" disabled={dateIndex >= availableDates.length - 1} onClick={() => setDateIndex(value => Math.min(availableDates.length - 1, value + 1))}>›</button></div></section>
-    <div className="sectionTitle guestSectionTitle"><div><p className="eyebrow">Primary or secondary coordinator</p><h2>My groups</h2></div><span>{groups.length} groups</span></div>
-    <div className="groupGrid">{groups.map(group => {
-      const agenda = group.agenda.filter(item => item.date === selectedDate).sort((a, b) => a.time.localeCompare(b.time));
-      const guests = snapshot.guests.filter(guest => guest.groupId === group.id);
-      const missing = guests.filter(guest => !guest.phone && !guest.email).length;
-      return <article className="groupCard" key={group.id}><header><div><p>{group.name}</p><span>{guests.length || group.guestCount} guests</span></div>{missing > 0 ? <b className="attentionPill">{missing} need contact</b> : <b className="readyPill">Ready</b>}</header><div className="coordinatorLine"><span>Primary: {group.primaryName || "Not assigned"}</span><span>Secondary: {group.secondaryName || "Not assigned"}</span></div>{agenda.length ? <ol className="agendaList">{agenda.map(item => <li key={item.id}><time>{formatTime(item.time)}</time><span><b>{item.title}</b>{item.details && <small>{item.details}</small>}</span></li>)}</ol> : <div className="quietState"><b>No agenda for this date</b><span>Add an agenda line before sending.</span></div>}<footer><button className="secondaryAction" onClick={() => setEditing(group)}>Edit agenda</button><button className="primaryAction" disabled={!agenda.length || !guests.length} onClick={() => send({ title: group.name, purpose: "agenda", guests, group, date: selectedDate })}>Send to all</button></footer></article>;
-    })}</div>{editing && <AgendaSheet group={editing} date={selectedDate} close={() => setEditing(null)} save={items => { void saveAgenda(editing.id, selectedDate, items); setEditing(null); }} />}
+    <aside className="mineGuidance">Everything <b>{group.name}</b> needs to be told. Review each line, then send the agenda and travel separately so nobody receives one long message.</aside>
+    <section className="mineGroupPicker"><p className="eyebrow">Your groups</p><div>{groups.map(item => <button key={item.id} className={item.id === group.id ? "active" : ""} onClick={() => { setGroupId(item.id); setDateIndex(0); }}>{item.name}</button>)}</div></section>
+    <div className="mineSegments" role="tablist" aria-label="Group message type"><button className={segment === "agenda" ? "active" : ""} onClick={() => setSegment("agenda")}>Agenda · {agenda.length}</button><button className={segment === "travel" ? "active" : ""} onClick={() => setSegment("travel")}>Travel · {dayTravel.length}</button></div>
+    <div className="mineDayHeader"><div><h1>{formatDate(selectedDate)}</h1><span>{segment === "agenda" ? `${agenda.length} lines` : `${dayTravel.length} vehicles`}</span></div><div className="mineDateArrows"><button aria-label="Previous day" disabled={safeDateIndex === 0} onClick={() => setDateIndex(value => Math.max(0, value - 1))}>‹</button><button aria-label="Next day" disabled={safeDateIndex >= availableDates.length - 1} onClick={() => setDateIndex(value => Math.min(availableDates.length - 1, value + 1))}>›</button></div></div>
+    {segment === "agenda" ? <>
+      <div className="mineLineList">{agenda.map(item => <article key={item.id}><button className="mineLineMain" onClick={() => setEditingAgenda(true)}><time>{item.time}</time><span><b>{item.title}</b><small>{item.details || "No additional details"}</small></span><i>›</i></button><button className="mineRemove" aria-label={`Remove ${item.title}`} onClick={() => removeAgendaLine(item.id)}>×</button></article>)}</div>
+      {!agenda.length && <div className="quietState"><b>No agenda for this date</b><span>Add the first line before sending.</span></div>}
+      <button className="secondaryAction mineAddLine" onClick={() => setEditingAgenda(true)}>＋ Add a line</button>
+      <MessagePreview title="What they will receive" text={agendaMessage} note="The wording is approved centrally. Names, dates and agenda lines are filled from live data." />
+      <div className="mineSendActions"><button className="primaryAction" disabled={!agenda.length || !guests.length} onClick={() => send({ title: group.name, purpose: "agenda", guests, group, date: selectedDate })}>Send agenda to all</button><button className="secondaryAction" disabled={!agenda.length} onClick={() => void copy(agendaMessage)}>Copy the text</button></div>
+    </> : <>
+      <div className="mineTravelList">{dayTravel.map(plan => <button key={plan.id} onClick={() => setEditingTravel(plan)}><span className="travelMode">{plan.mode}</span><span><b>{plan.name}</b><small>{plan.stops[0] ? `${formatTime(plan.stops[0].time)} · ${plan.stops[0].place}` : plan.routeName}</small></span><i>›</i></button>)}</div>
+      {!dayTravel.length && <div className="quietState"><b>No travel for this group on this date</b><span>Add the first vehicle or route when it is confirmed.</span></div>}
+      <button className="secondaryAction mineAddLine" onClick={addTravel}>＋ Add travel for this group</button>
+      <MessagePreview title="What they will receive" text={travelMessage} note="Vehicle, stop, seat and driver variables are filled from live travel data." />
+      <div className="mineSendActions"><button className="primaryAction" disabled={!dayTravel.length || !guests.length} onClick={() => send({ title: `${group.name} travel`, purpose: "travel", guests, event: selectedDate === "2026-11-18" ? "taj" : "malur", travelPlanId: dayTravel[0]?.id })}>Send travel to all</button><button className="secondaryAction" disabled={!dayTravel.length} onClick={() => void copy(travelMessage)}>Copy the text</button></div>
+    </>}
+    <p className="mineReachability">{reachable} of {guests.length || group.guestCount} guests in {group.name} have a WhatsApp number in the Master Sheet.</p>
+    {editingAgenda && <AgendaSheet group={group} date={selectedDate} close={() => setEditingAgenda(false)} save={items => { void saveAgenda(group.id, selectedDate, items); setEditingAgenda(false); }} />}
+    {editingTravel && <TravelSheet plan={editingTravel} categories={snapshot.categories} close={() => setEditingTravel(null)} save={plan => { void saveTravel(plan); setEditingTravel(null); }} />}
   </>;
+}
+
+function MessagePreview({ title, text, note }: { title: string; text: string; note: string }) {
+  return <section className="messagePreview"><header><b>{title}</b><span>Fixed template</span></header><textarea value={text} readOnly aria-label={title} /><p>{note}</p></section>;
 }
 
 function InvitationsView({ user, preview, snapshot, send, notify }: { user: EventUser; preview: boolean; snapshot: GuestSnapshot; send: (audience: SendAudience) => void; notify: (message: string) => void }) {
@@ -438,5 +492,17 @@ function matchesGuest(guest: GuestRecord, query: string) {
 
 function formatDate(date: string) { return new Date(`${date}T12:00:00`).toLocaleDateString("en-IN", { weekday: "short", day: "numeric", month: "long" }); }
 function formatTime(time: string) { const [hour, minute] = time.split(":").map(Number); return new Date(2000, 0, 1, hour, minute).toLocaleTimeString("en-IN", { hour: "numeric", minute: "2-digit" }); }
+function buildAgendaPreview(group: GuestGroup, date: string, items: GuestAgendaItem[]) {
+  const lines = items.map(item => `${item.time}  ${item.title}${item.details ? ` — ${item.details}` : ""}`).join("\n");
+  return `Yuken India Limited — Golden Jubilee\n\n${group.name}\nYour programme · ${formatDate(date)}\n\n${lines || "Programme details will be shared shortly."}\n\nPlease contact your YIL coordinator if you need any help.`;
+}
+function buildTravelPreview(group: GuestGroup, date: string, plans: GuestTravelPlan[]) {
+  const lines = plans.map((plan, planIndex) => {
+    const stops = plan.stops.map(stop => `  ${stop.time}  ${stop.place}`).join("\n");
+    const driver = plan.driverName ? `\n  Driver: ${plan.driverName}${plan.driverPhone ? ` · ${plan.driverPhone}` : ""}` : "";
+    return `${planIndex + 1}. ${plan.name} · ${plan.mode}\n${stops}${driver}`;
+  }).join("\n\n");
+  return `Yuken India Limited — Golden Jubilee\n\n${group.name}\nTravel for ${formatDate(date)}\n\n${lines || "Travel details will be shared shortly."}`;
+}
 function languageName(language: string) { return ({ english: "English", german: "German", japanese: "Japanese" } as Record<string, string>)[language] ?? language; }
 function rsvpLabel(status: string) { return ({ "not-invited": "Not invited", pending: "Awaiting reply", accepted: "Attending", declined: "Unable to attend" } as Record<string, string>)[status] ?? status; }

@@ -9,6 +9,8 @@ import GuestCoordinationApp from "./GuestCoordinationApp";
 
 type Screen = "login" | "pin" | "choose" | "event" | "guest";
 type EventTab = "home" | "updates" | "malur" | "taj" | "budget";
+type EventTeamMember = { id: string; initials: string; fullName: string };
+const APP_TODAY_MS = Date.now();
 const tabs: { id: EventTab; icon: string; label: string; core?: boolean }[] = [
   { id: "home", icon: "◈", label: "Home" },
   { id: "updates", icon: "◍", label: "Updates" },
@@ -24,8 +26,13 @@ export default function EventOperationsApp() {
   const [jobs, setJobs] = useState(previewJobs);
   const [sections, setSections] = useState([...previewSections]);
   const [budget, setBudget] = useState<EventBudgetEntry[]>([...previewBudget]);
+  const [team, setTeam] = useState<EventTeamMember[]>([]);
   const [budgetOpen, setBudgetOpen] = useState(false);
   const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
+  const [selectedSectionId, setSelectedSectionId] = useState<string | null>(null);
+  const [eventSearchOpen, setEventSearchOpen] = useState(false);
+  const [eventQuery, setEventQuery] = useState("");
+  const [ownerFilter, setOwnerFilter] = useState<string | null>(null);
   const [authError, setAuthError] = useState("");
   const [signingIn, setSigningIn] = useState(false);
   const [toast, setToast] = useState("");
@@ -44,7 +51,7 @@ export default function EventOperationsApp() {
       }
       if (state.screen && (["login", "pin", "choose", "event", "guest"] as Screen[]).includes(state.screen)) setScreen(state.screen);
       if (state.eventTab && (["home", "updates", "malur", "taj", "budget"] as EventTab[]).includes(state.eventTab)) setTab(state.eventTab);
-      setSelectedJobId(null); setBudgetOpen(false); window.scrollTo(0, 0);
+      setSelectedJobId(null); setSelectedSectionId(null); setBudgetOpen(false); setEventSearchOpen(false); window.scrollTo(0, 0);
     }
     window.addEventListener("popstate", restoreFromHistory);
     return () => window.removeEventListener("popstate", restoreFromHistory);
@@ -54,12 +61,12 @@ export default function EventOperationsApp() {
     const state: Record<string, unknown> = { ...(window.history.state ?? {}), yilApp: true, screen: next, eventTab: tab };
     if (next === "guest") state.guestTab = "mine"; else delete state.guestTab;
     window.history[replace ? "replaceState" : "pushState"](state, "");
-    setSelectedJobId(null); setBudgetOpen(false); setScreen(next); window.scrollTo(0, 0);
+    setSelectedJobId(null); setSelectedSectionId(null); setBudgetOpen(false); setEventSearchOpen(false); setScreen(next); window.scrollTo(0, 0);
   }
 
   function navigateEventTab(next: EventTab) {
     window.history.pushState({ ...(window.history.state ?? {}), yilApp: true, screen: "event", eventTab: next }, "");
-    setTab(next); window.scrollTo(0, 0);
+    setSelectedSectionId(null); setEventSearchOpen(false); setTab(next); window.scrollTo(0, 0);
   }
 
   useEffect(() => {
@@ -75,13 +82,14 @@ export default function EventOperationsApp() {
   }, []);
 
   useEffect(() => {
-    if (screen !== "event" || !user || user.id === previewUser.id) return;
+    if ((screen !== "event" && screen !== "guest") || !user || user.id === previewUser.id) return;
     fetch("/api/event/snapshot", { cache: "no-store" }).then(async response => {
-      const payload = await response.json() as { jobs?: EventJob[]; sections?: typeof previewSections; budget?: EventBudgetEntry[]; error?: string };
+      const payload = await response.json() as { jobs?: EventJob[]; sections?: typeof previewSections; budget?: EventBudgetEntry[]; team?: EventTeamMember[]; error?: string };
       if (!response.ok) throw new Error(payload.error || "Event Work could not be loaded.");
       if (payload.jobs) setJobs(payload.jobs);
       if (payload.sections) setSections([...payload.sections]);
       if (payload.budget) setBudget([...payload.budget]);
+      if (payload.team) setTeam(payload.team);
     }).catch(error => setToast(error instanceof Error ? error.message : "Event Work could not be loaded."));
   }, [screen, user]);
 
@@ -158,13 +166,17 @@ export default function EventOperationsApp() {
   if (screen === "pin" && user) return <PinScreen user={user} submit={changePin} error={authError} />;
   if (screen === "choose" && user) return <WorkAreaScreen user={user} openEvent={() => navigateScreen("event")} openGuest={() => navigateScreen("guest")} signOut={signOut} />;
   if (!user) return null;
-  if (screen === "guest") return <GuestCoordinationApp user={user} back={() => navigateScreen("choose")} signOut={signOut} />;
+  if (screen === "guest") return <GuestCoordinationApp user={user} team={team} back={() => navigateScreen("choose")} signOut={signOut} />;
 
   return <main className="eventApp">
-    <EventHeader tab={tab} user={user} back={() => navigateScreen("choose")} signOut={signOut} />
+    <EventHeader tab={tab} user={user} back={() => navigateScreen("choose")} signOut={signOut} search={() => setEventSearchOpen(value => !value)} />
+    <CommitteeStrip team={team} selected={ownerFilter} select={setOwnerFilter} />
     <div className="eventBody">
-      {tab === "home" && <HomeView sections={sections} jobs={jobs} openJob={setSelectedJobId} />}
-      {tab === "updates" && <UpdatesView jobs={jobs} openJob={setSelectedJobId} />}
+      {eventSearchOpen && <EventSearch value={eventQuery} change={setEventQuery} close={() => { setEventQuery(""); setEventSearchOpen(false); }} />}
+      {tab === "home" && (selectedSectionId
+        ? <SectionDetail section={sections.find(section => section.id === selectedSectionId)!} jobs={jobs.filter(job => job.sectionId === selectedSectionId)} back={() => setSelectedSectionId(null)} openJob={setSelectedJobId} />
+        : <HomeView sections={sections} jobs={jobs} query={eventQuery} ownerFilter={ownerFilter} openSection={setSelectedSectionId} />)}
+      {tab === "updates" && <UpdatesView jobs={jobs} query={eventQuery} ownerFilter={ownerFilter} openJob={setSelectedJobId} />}
       {(tab === "malur" || tab === "taj") && <VenueView venue={tab} jobs={jobs} openJob={setSelectedJobId} />}
       {tab === "budget" && <BudgetView entries={budget} add={() => setBudgetOpen(true)} />}
     </div>
@@ -210,32 +222,58 @@ function WorkAreaScreen({ user, openEvent, openGuest, signOut }: { user: EventUs
   return <main className="centredScreen"><section className="areaCard"><header><span className="miniMark">YIL <b>50</b></span><button onClick={signOut}>Sign out</button></header><p className="eyebrow">Signed in as {user.fullName}</p><h1>Where would you like to start?</h1><p>Choose one work area. You can switch later without signing in again.</p><div className="areaChoices"><button onClick={openEvent}><span className="areaIcon">◈</span><strong>Event Work</strong><small>Planning, updates, Malur, Taj and budget</small><i>›</i></button><button onClick={openGuest}><span className="areaIcon">◉</span><strong>Guest coordination</strong><small>Mine, invitations, guests, travel and stays</small><i>›</i></button></div></section></main>;
 }
 
-function EventHeader({ tab, user, back, signOut }: { tab: EventTab; user: EventUser; back: () => void; signOut: () => void }) {
+function EventHeader({ tab, user, back, signOut, search }: { tab: EventTab; user: EventUser; back: () => void; signOut: () => void; search: () => void }) {
   const title = { home: "Golden Jubilee 2026", updates: "Team updates", malur: "YIL Malur", taj: "Taj West End", budget: "Event budget" }[tab];
-  return <header className="eventHeader"><div className="headerBrand"><span>YIL <b>50</b></span><div><strong>{title}</strong><small>{tab === "home" ? "Planning activity" : "Event Work"}</small></div></div><details className="userMenu"><summary aria-label="Open account menu"><span>{user.initials}</span></summary><div><b>{user.fullName}</b><small>{user.responsibility}</small><button onClick={back}>Switch work area</button><button onClick={signOut}>Sign out</button></div></details></header>;
+  return <header className="eventHeader"><div className="headerBrand"><span>YIL <b>50</b></span><div><strong>{title}</strong><small>{tab === "home" ? "Planning activity" : "Event Work"}</small></div></div><div className="headerActions"><button className="headerSearch" aria-label="Search Event Work" onClick={search}>⌕</button><details className="userMenu"><summary aria-label="Open account menu"><span>{user.initials}</span></summary><div><b>{user.fullName}</b><small>{user.responsibility}</small><button onClick={back}>Switch work area</button><button onClick={signOut}>Sign out</button></div></details></div></header>;
 }
 
-function HomeView({ sections, jobs, openJob }: { sections: typeof previewSections; jobs: EventJob[]; openJob: (id: string) => void }) {
-  const complete = jobs.filter(job => job.complete).length, blocked = jobs.filter(job => job.blockingNote && !job.complete).length;
-  return <><section className="eventHero"><p className="eyebrow">Five decades of friendly and intelligent service</p><div className="dateCards"><article><span>Sun · November</span><b>15</b><small>YIL Malur</small></article><article><span>Wed · November</span><b>18</b><small>Taj West End</small></article></div></section><section className="metricGrid"><article><b>{jobs.length}</b><span>activities</span></article><article><b>{complete}</b><span>complete</span></article><article className={blocked ? "attention" : ""}><b>{blocked}</b><span>blocked</span></article></section><div className="sectionTitle"><div><p className="eyebrow">Master Sheet · Sections and Jobs</p><h2>Planning activity</h2></div><span>{complete}/{jobs.length} complete</span></div><div className="sectionList">{sections.map(section => <SectionCard key={section.id} section={section} jobs={jobs.filter(job => job.sectionId === section.id)} openJob={openJob} />)}</div><SourceNote /></>;
+function CommitteeStrip({ team, selected, select }: { team: EventTeamMember[]; selected: string | null; select: (id: string | null) => void }) {
+  if (!team.length) return null;
+  return <div className="committeeStrip"><span>Core<br />committee</span><div>{team.map(person => <button key={person.id} className={selected === person.id ? "active" : ""} title={person.fullName} aria-label={`Show work assigned to ${person.fullName}`} onClick={() => select(selected === person.id ? null : person.id)}>{person.initials}</button>)}</div></div>;
 }
 
-function SectionCard({ section, jobs, openJob }: { section: typeof previewSections[number]; jobs: EventJob[]; openJob: (id: string) => void }) {
+function EventSearch({ value, change, close }: { value: string; change: (value: string) => void; close: () => void }) {
+  return <section className="eventSearchPanel"><label><span aria-hidden="true">⌕</span><input type="search" value={value} onChange={event => change(event.target.value)} placeholder="Search activities, people or updates" aria-label="Search activities, people or updates" /></label><button onClick={close}>Close</button></section>;
+}
+
+function HomeView({ sections, jobs, query, ownerFilter, openSection }: { sections: typeof previewSections; jobs: EventJob[]; query: string; ownerFilter: string | null; openSection: (id: string) => void }) {
+  const term = query.trim().toLocaleLowerCase("en-IN");
+  const visibleSections = sections.filter(section => jobs.some(job => job.sectionId === section.id && (!ownerFilter || job.ownerIds.includes(ownerFilter)) && (!term || `${job.title} ${job.ownerLabel} ${section.heading}`.toLocaleLowerCase("en-IN").includes(term))));
+  const complete = jobs.filter(job => job.complete).length;
+  return <><section className="eventHero"><p className="eyebrow">Five decades of friendly and intelligent service</p><div className="dateCards"><article><span>Sun · November</span><b>15</b><small>YIL Malur</small></article><article><span>Wed · November</span><b>18</b><small>Taj West End</small></article></div></section><div className="sectionTitle prototypeSectionTitle"><div><p className="eyebrow">Planning activity</p></div><span>{complete}/{jobs.length} complete</span></div><div className="sectionList prototypeSectionList">{visibleSections.map(section => <SectionCard key={section.id} section={section} jobs={jobs.filter(job => job.sectionId === section.id)} open={() => openSection(section.id)} />)}</div>{!visibleSections.length && <div className="emptyState">No planning sections match this search or committee filter.</div>}<SourceNote /></>;
+}
+
+function SectionCard({ section, jobs, open }: { section: typeof previewSections[number]; jobs: EventJob[]; open: () => void }) {
   const completed = jobs.filter(job => job.complete).length;
-  return <section className="sectionCard"><header><span>{String(section.number).padStart(2, "0")}</span><div><h3>{section.heading}</h3><p>{jobs.length} activities · {completed} complete</p></div><b>{jobs.length ? Math.round(completed / jobs.length * 100) : 0}%</b></header><div className="progress"><i style={{ width: `${jobs.length ? completed / jobs.length * 100 : 0}%` }} /></div><div>{jobs.map(job => <JobRow key={job.id} job={job} open={() => openJob(job.id)} />)}</div></section>;
+  const late = jobs.filter(job => !job.complete && job.finishBy && new Date(job.finishBy).getTime() < APP_TODAY_MS).length;
+  return <button className="sectionCard prototypeSectionCard" onClick={open}><span className="sectionNumber">{section.number}</span><span className="sectionSummary"><b>{section.heading}</b>{late > 0 && <em>{late} late</em>}<i><span style={{ width: `${jobs.length ? completed / jobs.length * 100 : 0}%` }} /></i></span><span className="sectionCount">{completed}/{jobs.length}</span><span className="sectionArrow">›</span></button>;
+}
+
+function SectionDetail({ section, jobs, back, openJob }: { section: typeof previewSections[number]; jobs: EventJob[]; back: () => void; openJob: (id: string) => void }) {
+  const completed = jobs.filter(job => job.complete).length;
+  return <><button className="inlineBack" onClick={back}>‹ Planning activity</button><section className="sectionDetailHero"><span>{section.number}</span><div><p className="eyebrow">Planning activity</p><h1>{section.heading}</h1><small>{completed}/{jobs.length} complete</small></div></section><div className="sectionCard sectionDetailCard"><div>{jobs.map(job => <JobRow key={job.id} job={job} open={() => openJob(job.id)} />)}</div></div><SourceNote /></>;
 }
 
 function JobRow({ job, open }: { job: EventJob; open: () => void }) {
   return <button className="jobRow" onClick={open}><span className={`jobState ${job.complete ? "done" : job.blockingNote ? "blocked" : job.organised ? "organised" : ""}`}>{job.complete ? "✓" : job.blockingNote ? "!" : job.organised ? "O" : "·"}</span><span className="jobCopy"><strong>{job.title}</strong><small>{job.ownerLabel} · {job.finishBy ? new Date(job.finishBy).toLocaleDateString("en-IN", { day: "numeric", month: "short" }) : "No finish-by date"}</small></span><span className={`venuePill ${job.venue}`}>{job.venue === "general" ? "Both" : job.venue === "malur" ? "Malur" : job.venue === "taj" ? "Taj" : "17 Nov"}</span><i>›</i></button>;
 }
 
-function UpdatesView({ jobs, openJob }: { jobs: EventJob[]; openJob: (id: string) => void }) {
-  const updates = jobs.flatMap(job => job.updates.map(update => ({ ...update, job }))); return <><div className="sectionTitle"><div><p className="eyebrow">Newest first</p><h2>What the team has reported</h2></div><span>{updates.length} updates</span></div>{updates.length ? <div className="updateList">{updates.map(update => <button key={update.id} onClick={() => openJob(update.job.id)}><span className="initialBadge">{update.author.slice(0, 2).toUpperCase()}</span><span><strong>{update.job.title}</strong><p>{update.message}</p>{update.attachments.length > 0 && <em>▧ {update.attachments.length} photo/video</em>}<small>{update.author} · {update.at}</small></span><i>›</i></button>)}</div> : <div className="emptyState">No updates have been posted yet.</div>}<SourceNote /></>;
+function UpdatesView({ jobs, query, ownerFilter, openJob }: { jobs: EventJob[]; query: string; ownerFilter: string | null; openJob: (id: string) => void }) {
+  const [person, setPerson] = useState("all");
+  const authors = [...new Set(jobs.flatMap(job => job.updates.map(update => update.author)))].sort();
+  const term = query.trim().toLocaleLowerCase("en-IN");
+  const updates = jobs.filter(job => !ownerFilter || job.ownerIds.includes(ownerFilter)).flatMap(job => job.updates.map(update => ({ ...update, job }))).filter(update => (person === "all" || update.author === person) && (!term || `${update.author} ${update.message} ${update.job.title}`.toLocaleLowerCase("en-IN").includes(term)));
+  const grouped = updates.reduce<Record<string, typeof updates>>((result, update) => { const label = update.at.includes("T") ? new Date(update.at).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" }) : update.at.split("·")[0].trim() || "Recent"; (result[label] ||= []).push(update); return result; }, {});
+  return <><div className="sectionTitle"><div><p className="eyebrow">Updates</p><h2>What everyone has done</h2></div><span>{updates.length} updates</span></div><div className="updatesFilters"><label><span>Person</span><select value={person} onChange={event => setPerson(event.target.value)}><option value="all">Pick a person</option>{authors.map(author => <option key={author}>{author}</option>)}</select></label></div>{updates.length ? Object.entries(grouped).map(([label, items]) => <section className="updateDay" key={label}><header><b>{label}</b><span>{items.length}</span></header><div className="updateList">{items.map(update => <button key={update.id} onClick={() => openJob(update.job.id)}><span className="initialBadge">{initialsFor(update.author)}</span><span><strong>{update.author}</strong><small>{update.at}</small><p>{update.message}</p>{update.attachments.length > 0 && <em>▧ {update.attachments.length} photo/video</em>}<small>{update.job.title}</small></span><i>›</i></button>)}</div></section>) : <div className="emptyState">No updates match this filter.</div>}<SourceNote /></>;
 }
 
 function VenueView({ venue, jobs, openJob }: { venue: "malur" | "taj"; jobs: EventJob[]; openJob: (id: string) => void }) {
-  const venueJobs = jobs.filter(job => job.venue === venue || job.venue === "general"); const lines = previewProgramme[venue];
-  return <><section className={`venueHero ${venue}`}><p>{venue === "malur" ? "Sunday · 15 November 2026" : "Wednesday · 18 November 2026"}</p><h1>{venue === "malur" ? "Plant event" : "Golden Jubilee evening"}</h1><span>{lines.length} programme lines · {venueJobs.length} preparation activities</span></section><div className="venueGrid"><section><div className="sectionTitle compact"><div><p className="eyebrow">Run of day</p><h2>Programme</h2></div></div><div className="timeline">{lines.map(([time, title]) => <article key={time}><time>{time}</time><i /><span>{title}</span></article>)}</div></section><section><div className="sectionTitle compact"><div><p className="eyebrow">Same source as Home</p><h2>Preparation work</h2></div><span>{venueJobs.filter(job => job.complete).length}/{venueJobs.length}</span></div><div className="venueJobs">{venueJobs.map(job => <JobRow key={job.id} job={job} open={() => openJob(job.id)} />)}</div></section></div><SourceNote /></>;
+  const [view, setView] = useState<"programme" | "jobs" | "preparation">("programme");
+  const venueJobs = jobs.filter(job => job.venue === venue || job.venue === "general");
+  const preparationJobs = venueJobs.filter(job => job.sectionId !== "programme");
+  const lines = previewProgramme[venue];
+  const complete = venueJobs.filter(job => job.complete).length;
+  return <><section className={`venueHero ${venue}`}><div><p>{venue === "malur" ? "Sunday 15 November 2026" : "Wednesday 18 November 2026"}</p><h1>{venue === "malur" ? "YIL Malur" : "Taj West End"}</h1></div><div className="venueMetrics"><span><b>{venue === "malur" ? "1,200" : "500"}</b>expected</span><span><b>{complete}/{venueJobs.length}</b>jobs done</span></div></section><div className="venueSegments" role="tablist" aria-label={`${venue === "malur" ? "Malur" : "Taj"} view`}><button className={view === "programme" ? "active" : ""} onClick={() => setView("programme")}>Programme <span>{lines.length}</span></button><button className={view === "jobs" ? "active" : ""} onClick={() => setView("jobs")}>Jobs <span>{venueJobs.length}</span></button><button className={view === "preparation" ? "active" : ""} onClick={() => setView("preparation")}>Preparation <span>{preparationJobs.length}</span></button></div>{view === "programme" && <><p className="viewInstruction">The run of the day, hour by hour. Tap a line to open the work behind it.</p><div className="programmeRows">{lines.map(([time, title]) => { const linked = venueJobs.find(job => job.title.toLocaleLowerCase("en-IN").includes(title.split(" ")[0].toLocaleLowerCase("en-IN"))); return <button key={`${time}-${title}`} onClick={() => linked && openJob(linked.id)} disabled={!linked}><time>{time}</time><span><b>{title}</b><small>{venue === "malur" ? "YIL Malur" : "Taj West End"}{linked ? ` · ${linked.ownerLabel}` : ""}</small></span><i>{linked ? "›" : ""}</i></button>; })}</div></>}{view === "jobs" && <div className="sectionCard sectionDetailCard"><div>{venueJobs.map(job => <JobRow key={job.id} job={job} open={() => openJob(job.id)} />)}</div></div>}{view === "preparation" && <div className="sectionCard sectionDetailCard"><div>{preparationJobs.map(job => <JobRow key={job.id} job={job} open={() => openJob(job.id)} />)}</div></div>}<button className="printDayAction" onClick={() => window.print()}>Print this day</button><SourceNote /></>;
 }
 
 function BudgetView({ entries, add }: { entries: EventBudgetEntry[]; add: () => void }) {
@@ -267,3 +305,7 @@ function VideoAttachment({ src, label }: { src: string; label: string }) {
 }
 
 function SourceNote() { return <aside className="sourceNote"><b>Master Sheet connection</b><span>People, Sections and Jobs define this work. Status, updates, budget and audit history stay in the operational database.</span></aside>; }
+
+function initialsFor(name: string) {
+  return name.split(/\s+/).filter(Boolean).slice(0, 2).map(part => part[0]).join("").toUpperCase() || "YIL";
+}
