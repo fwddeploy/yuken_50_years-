@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import PwaRegistration from "./PwaRegistration";
 import "./globals.css";
+import "./touch-targets.css";
 
 export const metadata: Metadata = {
   title: "YIL Golden Jubilee — Event Operations",

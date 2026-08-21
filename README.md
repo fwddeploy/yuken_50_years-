@@ -10,6 +10,7 @@ Internal, installable web application for coordinating Yuken India Limited's Gol
 - Master Sheet validation and protected import boundary
 - Assignment-based server permissions and core-only reassignment
 - Persistent event state and audit schema for Cloudflare D1
+- Authenticated photo/video updates using D1 metadata and private Cloudflare R2 objects
 - PWA manifest, safe offline state and user-controlled update refresh
 
 - Guest Coordination with Mine, Invitations, Guests, Travel and Stays
@@ -34,6 +35,8 @@ Copy the variable names from `.env.example` into the deployment's protected secr
 - `INITIAL_LOGIN_PIN`: configured temporary four-digit PIN used only when a new employee account is created from the Master.
 - `SESSION_PEPPER`: long random secret used when hashing stored session tokens.
 - `MASTER_IMPORT_KEY`: long random secret required by the Master import endpoint.
+
+The deployment also requires a D1 binding named `DB` and a private R2 binding named `MEDIA`. Media is never served from a public bucket URL; active employee sessions read it through `/api/job-attachments/:id`.
 
 ## Master Sheet boundary
 

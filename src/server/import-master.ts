@@ -146,7 +146,7 @@ export async function applyMasterPayload(payload: MasterPayload): Promise<Import
     database.prepare("UPDATE sections SET active=0, updated_at=? WHERE active=1 AND (source_updated_at IS NULL OR source_updated_at<>?)").bind(now, batchId),
     database.prepare("UPDATE jobs SET active=0, updated_at=? WHERE active=1 AND (source_updated_at IS NULL OR source_updated_at<>?)").bind(now, batchId),
   ];
-  for (const table of ["guest_categories", "guest_groups", "guests", "group_agenda_items", "travel_plans", "travel_stops", "hotels"]) statements.push(database.prepare(`UPDATE ${table} SET active=0, updated_at=? WHERE active=1 AND source_updated_at IS NOT NULL AND source_updated_at<>'app' AND source_updated_at<>?`).bind(now, batchId));
+  for (const table of ["guest_categories", "guest_groups", "guests", "group_agenda_items", "travel_plans", "travel_stops", "hotels"]) statements.push(database.prepare(`UPDATE ${table} SET active=0, updated_at=? WHERE active=1 AND (source_updated_at IS NULL OR (source_updated_at<>'app' AND source_updated_at<>?))`).bind(now, batchId));
   statements.push(
     database.prepare("UPDATE travel_stops SET active=0, updated_at=? WHERE active=1 AND travel_plan_id IN (SELECT id FROM travel_plans WHERE active=0)").bind(now),
     database.prepare("INSERT INTO audit_events (id, action, entity_type, entity_id, after_json, sync_batch_id, created_at) VALUES (?, 'master.sync-applied', 'sync_batch', ?, ?, ?, ?)").bind(crypto.randomUUID(), batchId, JSON.stringify({ people: activePeople.length, sections: activeSections.length, jobs: jobRows.length, guestRecords: guestApplied, sourceVersion: payload.sourceVersion }), batchId, now),

@@ -8,7 +8,7 @@ Updated: 2026-08-21
 - Product-specific employee sign-in, first-PIN replacement and work-area choice.
 - Event Work tabs: Home, Updates, Malur, Taj and core-only Budget.
 - Responsive Event activity list and assignment-aware activity detail flow.
-- D1 schema and migration for 10 tables: People, Sections, Jobs, assignments, state, updates, Budget, sessions, sync batches and audit events.
+- D1 schema and migrations for 24 tables covering identity, Event Work, Budget, sessions, sync/audit, Guest Coordination, messaging and attachment metadata.
 - Protected authentication, session, PIN change, snapshot, job update, reassignment, Budget and Master import endpoints.
 - Master contract for the exact `1 People`, `2 Sections` and `3 Jobs` headers.
 - Install manifest, offline route, service worker and explicit update prompt.
@@ -23,6 +23,8 @@ Updated: 2026-08-21
 - Master/app provenance is preserved when editing existing guests, agenda lines, travel plans and travel stops; app-created guest rows remain protected from Master replacement.
 - Unified 11-sheet test Master generated outside Git with dynamic row handling and explicit missing-data warnings.
 - Parent-bound agenda-line and travel-stop mutations prevent client-supplied child IDs from moving records across guest groups or travel plans.
+- Protected Event-update media: bounded phone file chooser, server MIME/signature validation, private R2 storage, D1 metadata, authenticated no-store reads and byte-range playback.
+- App-managed Budget creation and Travel-plan creation, Master-managed guest removal guard, app-guest archive and work-area switching from both app headers.
 
 ## Evidence so far
 
@@ -48,6 +50,9 @@ Updated: 2026-08-21
 - Latest release verification: production build passed, ESLint passed, 16 of 16 automated tests passed and the production dependency audit found 0 vulnerabilities across 6 production dependencies.
 - Security scan of 74 repository files reported 2 launch risks in the approved PIN model: one high shared-bootstrap-PIN risk and one medium account-enumeration/lockout risk. The owner-only preview contains both during private testing; public launch does not.
 - Security diff review covered 10 of 10 changed runtime files and reproduced 1 medium cross-group agenda-ID authorization defect. Before the fix, the crafted request returned 200 and moved the other group's item; after the fix it returned 409, while a legitimate same-group update and a new line both returned 200. The sibling travel-stop test produced the same 409/200 protected/legitimate result.
+- Latest phone audit measured 32 screen/viewport combinations across 320×568 and 360×800: 0 horizontal-overflow failures, 0 controls below 44px, 0 login vertical-overflow failures and 0 browser console errors/warnings. Numeric, decimal, phone, email, date/time and media inputs were focusable with the intended input modes.
+- Latest synthetic local D1/R2 lifecycle passed 18 of 18 HTTP checks: Master add/reflection/removal, login, forged upload rejection, protected full/range media readback, invalid-range rejection, Budget validation, app/Master guest rules, Travel add/conflict, history retention and app-row protection.
+- Latest working-tree security diff scan reviewed 21 of 21 authoritative runtime/configuration files and produced 0 reportable findings. TAC status was unverified because the advisory connector was not connected; the parent agent performed all 21 reviews because delegated workers were unavailable for this scan.
 
 ## Not complete
 
@@ -59,6 +64,7 @@ Updated: 2026-08-21
 - RSVP token creation is reserved for the future provider-backed send operation; RSVP storage and response handling exist.
 - Core committee review and approval of final English, German and Japanese wording.
 - Production load testing against the provisioned D1 account.
+- Physical iPhone/Android acceptance of the native keyboard, photo picker, camera capture and real video codec playback. Browser input contracts and synthetic R2 range behavior are proven; the physical device behavior is unproven.
 - Public/custom-domain deployment, load testing and pilot acceptance. An owner-only phone-review preview is authorised separately.
 - Two-way Google Sheets write-back or a generated Excel export for app-created/edited rows. Today app writes are immediately authoritative in D1 and auditable, but they do not rewrite a local `.xlsx` file.
 - Public employee login approval. The shared first-time PIN must be replaced with unique claim codes or all claims completed behind a private access gate; login throttling also needs an edge policy and uniform failure responses.

@@ -7,7 +7,8 @@ export type EventUser = {
   isCore: boolean;
 };
 
-export type EventUpdate = { id: string; author: string; message: string; at: string };
+export type EventAttachment = { id: string; fileName: string; contentType: string; sizeBytes: number; url?: string };
+export type EventUpdate = { id: string; author: string; message: string; at: string; attachments: EventAttachment[] };
 export type EventJob = {
   id: string;
   sectionId: string;
@@ -23,6 +24,7 @@ export type EventJob = {
   updates: EventUpdate[];
 };
 export type EventSection = { id: string; number: number; heading: string };
+export type EventBudgetEntry = { id: string; jobId?: string | null; category: string; description: string; vendor?: string; amountPaise: number; status: "planned" | "approved" | "paid" | "cancelled" };
 
 export const previewUser: EventUser = {
   id: "preview-core",
@@ -41,12 +43,12 @@ export const previewSections: EventSection[] = [
 ];
 
 export const previewJobs: EventJob[] = [
-  { id: "demo-1", sectionId: "programme", title: "Confirm opening sequence", venue: "malur", finishBy: "2026-11-10", ownerIds: ["preview-core"], ownerLabel: "Programme team", organised: true, complete: false, updates: [{ id: "u-1", author: "Programme team", message: "Sequence reviewed; final speaker timing is pending.", at: "Today · 09:30" }] },
+  { id: "demo-1", sectionId: "programme", title: "Confirm opening sequence", venue: "malur", finishBy: "2026-11-10", ownerIds: ["preview-core"], ownerLabel: "Programme team", organised: true, complete: false, updates: [{ id: "u-1", author: "Programme team", message: "Sequence reviewed; final speaker timing is pending.", at: "Today · 09:30", attachments: [] }] },
   { id: "demo-2", sectionId: "programme", title: "Confirm evening stage run", venue: "taj", finishBy: "2026-11-12", ownerIds: ["venue-team"], ownerLabel: "Stage team", organised: false, complete: false, blockingNote: "Awaiting venue confirmation", updates: [] },
-  { id: "demo-3", sectionId: "movement", title: "Publish plant arrival plan", venue: "malur", finishBy: "2026-11-08", ownerIds: ["preview-core"], ownerLabel: "Movement team", organised: true, complete: true, updates: [{ id: "u-2", author: "Movement team", message: "Arrival gates and desk positions confirmed.", at: "Yesterday · 17:10" }] },
+  { id: "demo-3", sectionId: "movement", title: "Publish plant arrival plan", venue: "malur", finishBy: "2026-11-08", ownerIds: ["preview-core"], ownerLabel: "Movement team", organised: true, complete: true, updates: [{ id: "u-2", author: "Movement team", message: "Arrival gates and desk positions confirmed.", at: "Yesterday · 17:10", attachments: [] }] },
   { id: "demo-4", sectionId: "movement", title: "Confirm hotel-to-venue movement", venue: "taj", finishBy: "2026-11-13", ownerIds: ["transport-team"], ownerLabel: "Transport team", organised: false, complete: false, updates: [] },
   { id: "demo-5", sectionId: "venue", title: "Complete registration desk setup", venue: "malur", ownerIds: ["venue-team"], ownerLabel: "Venue team", organised: true, complete: false, updates: [] },
-  { id: "demo-6", sectionId: "venue", title: "Verify ballroom seating layout", venue: "taj", finishBy: "2026-11-14", ownerIds: ["preview-core"], ownerLabel: "Venue team", organised: false, complete: false, updates: [{ id: "u-3", author: "Venue team", message: "Revised layout requested from the venue.", at: "18 Aug · 14:05" }] },
+  { id: "demo-6", sectionId: "venue", title: "Verify ballroom seating layout", venue: "taj", finishBy: "2026-11-14", ownerIds: ["preview-core"], ownerLabel: "Venue team", organised: false, complete: false, updates: [{ id: "u-3", author: "Venue team", message: "Revised layout requested from the venue.", at: "18 Aug · 14:05", attachments: [] }] },
   { id: "demo-7", sectionId: "communications", title: "Review coordinator day sheet", venue: "general", finishBy: "2026-11-14", ownerIds: ["preview-core"], ownerLabel: "Communications team", organised: false, complete: false, updates: [] },
   { id: "demo-8", sectionId: "communications", title: "Prepare venue change template", venue: "general", ownerIds: ["communications-team"], ownerLabel: "Communications team", organised: true, complete: true, updates: [] },
 ];
@@ -56,8 +58,8 @@ export const previewProgramme = {
   taj: [["17:30", "Arrival and high tea"], ["18:30", "Welcome and inauguration"], ["19:30", "Golden Jubilee programme"], ["20:30", "Cultural programme"], ["21:15", "Dinner"]],
 } as const;
 
-export const previewBudget = [
+export const previewBudget: EventBudgetEntry[] = [
   { id: "b-1", category: "Venue", description: "Venue and hospitality placeholder", amountPaise: 0, status: "planned" },
   { id: "b-2", category: "Programme", description: "Programme production placeholder", amountPaise: 0, status: "planned" },
   { id: "b-3", category: "Transport", description: "Movement placeholder", amountPaise: 0, status: "planned" },
-] as const;
+];

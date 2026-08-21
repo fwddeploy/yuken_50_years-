@@ -81,6 +81,20 @@ export const jobUpdates = sqliteTable("job_updates", {
   createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
 }, table => [index("idx_job_updates_job_created").on(table.jobId, table.createdAt)]);
 
+export const jobUpdateAttachments = sqliteTable("job_update_attachments", {
+  id: text("id").primaryKey(),
+  updateId: text("update_id").notNull().references(() => jobUpdates.id, { onDelete: "cascade" }),
+  objectKey: text("object_key").notNull(),
+  fileName: text("file_name").notNull(),
+  contentType: text("content_type").notNull(),
+  sizeBytes: integer("size_bytes").notNull(),
+  uploadedBy: text("uploaded_by").notNull().references(() => people.id),
+  createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+}, table => [
+  uniqueIndex("uidx_job_update_attachments_object_key").on(table.objectKey),
+  index("idx_job_update_attachments_update").on(table.updateId, table.createdAt),
+]);
+
 export const budgetEntries = sqliteTable("budget_entries", {
   id: text("id").primaryKey(),
   jobId: text("job_id").references(() => jobs.id),

@@ -15,6 +15,13 @@
       "when": 1787291548302,
       "tag": "0001_fine_forgotten_one",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1787299586198,
+      "tag": "0002_silky_speed",
+      "breakpoints": true
     }
   ]
 }

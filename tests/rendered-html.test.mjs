@@ -46,7 +46,7 @@ test("source contains Event Work, Guest coordination and production boundaries",
   ]);
   for (const tab of ["Home", "Updates", "Malur", "Taj", "Budget"]) assert.match(component, new RegExp(`label: "${tab}"`));
   for (const tab of ["Mine", "Invites", "Guests", "Travel", "Stays"]) assert.match(guestComponent, new RegExp(`label: "${tab}"`));
-  for (const table of ["people", "sections", "jobs", "job_assignments", "job_states", "job_updates", "budget_entries", "sessions", "sync_batches", "audit_events", "guest_categories", "guest_groups", "guests", "guest_event_invitations", "group_agenda_items", "travel_plans", "travel_plan_categories", "travel_stops", "hotels", "guest_stays", "message_templates", "message_batches", "message_recipients"]) assert.match(schema, new RegExp(`sqliteTable\\("${table}"`));
+  for (const table of ["people", "sections", "jobs", "job_assignments", "job_states", "job_updates", "job_update_attachments", "budget_entries", "sessions", "sync_batches", "audit_events", "guest_categories", "guest_groups", "guests", "guest_event_invitations", "group_agenda_items", "travel_plans", "travel_plan_categories", "travel_stops", "hotels", "guest_stays", "message_templates", "message_batches", "message_recipients"]) assert.match(schema, new RegExp(`sqliteTable\\("${table}"`));
   for (const sheet of ["1 People", "2 Sections", "3 Jobs"]) assert.match(contract, new RegExp(sheet));
   for (const sheet of ["4 Guest Categories", "5 Guest Groups", "6 Guests", "7 Group Agenda", "8 Travel Plans", "9 Travel Stops", "10 Hotels"]) assert.match(guestContract, new RegExp(sheet));
   for (const copy of ["Preferred language", "Send to all", "Review templates", "Type a guest name"]) assert.match(guestComponent, new RegExp(copy, "i"));
@@ -56,11 +56,32 @@ test("source contains Event Work, Guest coordination and production boundaries",
   assert.match(importRoute, /mode.*preview/);
   assert.match(importService, /preservedHistory/);
   assert.match(importService, /appManagedProtected/);
+  assert.match(importService, /source_updated_at IS NULL OR \(source_updated_at<>'app'/u);
   assert.match(agendaRoute, /agenda lines belong to another guest group/i);
   assert.match(agendaRoute, /WHERE group_agenda_items\.group_id=excluded\.group_id/);
   assert.match(travelRoute, /travel stops belong to another plan/i);
   assert.match(travelRoute, /WHERE travel_stops\.travel_plan_id=excluded\.travel_plan_id/);
   assert.doesNotMatch(packageJson, /react-loading-skeleton|exceljs/);
+});
+
+test("phone inputs and every approved app-managed creation path are wired", async () => {
+  const [eventUi, guestUi, budgetRoute, travelRoute, guestRoute] = await Promise.all([
+    readFile(new URL("../app/EventOperationsApp.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/GuestCoordinationApp.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/api/budget/route.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/api/guest/travel/[id]/route.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/api/guest/guests/[id]/route.ts", import.meta.url), "utf8"),
+  ]);
+  assert.match(eventUi, /id="employeeNumber"[^>]+inputMode="numeric"[^>]+maxLength=\{20\}/u);
+  assert.match(eventUi, /id="employeePin"[^>]+inputMode="numeric"[^>]+maxLength=\{4\}/u);
+  assert.match(eventUi, /Switch work area/u);
+  assert.match(eventUi, /Add entry/u);
+  assert.match(eventUi, /type="file"[^>]+multiple/u);
+  assert.match(guestUi, /Add travel plan/u);
+  assert.match(guestUi, /type="tel"[^>]+inputMode="tel"/u);
+  assert.match(budgetRoute, /Choose a valid budget status/u);
+  assert.match(travelRoute, /travel plan with this name already exists/u);
+  assert.match(guestRoute, /belongs to the Master Sheet/u);
 });
 
 test("no workbook or environment-secret file is present in the repository", async () => {

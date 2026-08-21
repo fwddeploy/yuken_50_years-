@@ -17,5 +17,9 @@
 - A group has one primary and one secondary coordinator. Both can manage and message that group.
 - An owner-only preview deployment is authorised for phone review. Public access, a custom domain and provider credentials remain separate approvals.
 - A Master replacement must be previewed and explicitly confirmed before it can apply. The preview identifies active workflows that will be archived and operational history that will be retained.
+- D1 owns structured photo/video metadata; a private Cloudflare R2 bucket owns the bytes. Attachments are available only through an authenticated application route and are never stored in Excel, Google Sheets, Git or public browser storage.
+- Each Event update accepts at most three JPG, PNG, WebP, HEIC, MP4, MOV or WebM files; photos are limited to 10 MB each and all attached media to 50 MB per update.
+- Event activities remain Master-owned and cannot be created ad hoc in the application. Budget, progress, updates, attachments, agenda edits, stay assignments, app-created guests and app-created travel plans are operational D1 data.
+- A Master-managed guest can be edited in the application but can only be removed through the Master replacement workflow. An app-created guest can be archived in the application. Both paths retain operational history and audit records.
 
 Cloudflare Sites, Workers and D1 are the hosting path. DigitalOcean is not introduced without measured need; the domain and import contracts remain independent of the UI.

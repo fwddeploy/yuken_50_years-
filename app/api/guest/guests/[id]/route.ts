@@ -35,6 +35,7 @@ export async function DELETE(request: Request, context: { params: Promise<{ id: 
   const db = getDb();
   const [before] = await db.select().from(guests).where(and(eq(guests.id, id), eq(guests.active, true))).limit(1);
   if (!before) return Response.json({ error: "Guest was not found." }, { status: 404 });
+  if (before.sourceUpdatedAt !== "app") return Response.json({ error: "This guest belongs to the Master Sheet. Mark the guest as removed in the Master and upload it again." }, { status: 409 });
   const now = new Date().toISOString();
   await db.batch([
     db.update(guests).set({ active: false, updatedAt: now }).where(eq(guests.id, id)),

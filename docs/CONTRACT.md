@@ -44,6 +44,24 @@ This build covers the internal coordinator journey from employee sign-in into Ev
 - Travel is category-based. Multiple categories may share routes and vehicles. There is no individual guest travel override.
 - Hotel and room are assigned to a guest found by name. Search results include company and event so similar names can be distinguished.
 - Group agendas contain dated and timed lines. Mine selects a date and sends only that date's agenda using the guest/group name.
+- An Event update may include up to three validated photos/videos. R2 stores the private object bytes; D1 stores attachment ID, parent update, object key, safe filename, MIME type, size, uploader and timestamp.
+- Attachment reads require an active employee session, use private no-store responses and support a single bounded byte range for phone video playback. Malformed or unsatisfiable ranges return `416`.
+- A failed D1 write after an R2 upload triggers best-effort deletion of the just-uploaded objects. The update and its attachment metadata are written in one D1 batch.
+
+## Screen-to-store map
+
+| Screen or action | Human source | Runtime owner | Required effect |
+|---|---|---|---|
+| Employee sign-in / change PIN | `1 People` supplies active employee identity | D1 | Verify salted hash, create/revoke session, audit login/PIN change |
+| Event Home, Malur, Taj | `2 Sections` and `3 Jobs` | Master rows in D1; live state in D1 | Master replacement updates/archives planning rows; progress/history survives archive |
+| Activity update / photo / video | Employee application action | D1 metadata + private R2 bytes | Enforce assignment/core permission; update state, history and audit together |
+| Budget | Core committee application action | D1 | Create validated Budget row and audit event; never write to workbook |
+| Mine / group agenda | Master supplies groups/coordinators; employee edits dated lines | D1 | Show only primary/secondary groups; save dated agenda and audit mutation |
+| Invitations / RSVP | Master supplies guest/event inclusion and contact data | D1 | Preflight fixed language template; store per-event RSVP and message history |
+| Guest directory | Master or employee add | D1 with source marker | Master rows retire through Master import; app rows may be archived in-app |
+| Travel | Master or employee add/edit by category | D1 | Validate categories, date, ordered stops and conflicts; preserve app rows on Master replacement |
+| Stays | Master supplies guests/hotels; employee assigns by guest name | D1 | Store individual hotel/room assignment and audit update |
+| Master upload | Controlled Excel/Google Sheets payload | D1 normalized rows + sync/audit | Validate all references, preview impact, confirm exact version, then atomically apply/archive |
 
 ## PWA behaviour
 
@@ -68,3 +86,4 @@ This build covers the internal coordinator journey from employee sign-in into Ev
 - Stay search distinguishes duplicate names and saves hotel/room against the selected guest.
 - A message preflight reports the total audience, ready recipients and every skipped recipient with an actionable reason.
 - A Master removal preview reports affected People, Sections, Event activities, Guest categories, Guest groups, Guests, Agenda lines, Travel plans, Travel stops and Hotels, plus preserved job progress, invitation, stay and message history.
+- Authenticated attachment reads return the uploaded bytes; range reads return matching bytes with `206`, and invalid ranges return `416`.

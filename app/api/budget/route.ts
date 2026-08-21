@@ -17,10 +17,12 @@ export async function POST(request: Request) {
   if (!user.isCore) return Response.json({ error: "Budget is available only to the core committee." }, { status: 403 });
   const body = await request.json() as { jobId?: string; category?: string; description?: string; vendor?: string; amountPaise?: number; status?: "planned" | "approved" | "paid" | "cancelled" };
   const category = body.category?.trim() ?? "", description = body.description?.trim() ?? "", vendor = body.vendor?.trim() ?? "";
+  const status = body.status ?? "planned";
   if (!category || !description || !Number.isSafeInteger(body.amountPaise) || Number(body.amountPaise) < 0) return Response.json({ error: "Category, description and a valid amount are required." }, { status: 400 });
   if (category.length > 100 || description.length > 300 || vendor.length > 150) return Response.json({ error: "One or more fields are too long." }, { status: 400 });
+  if (!["planned", "approved", "paid", "cancelled"].includes(status)) return Response.json({ error: "Choose a valid budget status." }, { status: 400 });
   const id = crypto.randomUUID();
-  const entry = { id, jobId: body.jobId || null, category, description, vendor, amountPaise: Number(body.amountPaise), status: body.status ?? "planned", createdBy: user.personId };
+  const entry = { id, jobId: body.jobId || null, category, description, vendor, amountPaise: Number(body.amountPaise), status, createdBy: user.personId };
   const db = getDb();
   await db.batch([
     db.insert(budgetEntries).values(entry),

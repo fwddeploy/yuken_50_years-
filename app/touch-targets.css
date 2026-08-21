@@ -1,0 +1,68 @@
+/* Phone controls remain comfortable for coordinators even on short screens. */
+.primaryAction,
+.smallAction,
+.areaCard > header button,
+.userMenu button,
+.updateBanner button {
+  min-height: 44px;
+}
+
+.pinLabelRow button {
+  min-height: 44px;
+  margin-block: -7px;
+}
+
+.pinField > button {
+  top: 1px;
+  height: 44px;
+  margin: 0;
+}
+
+.loginForm select {
+  width: 100%;
+  min-height: 54px;
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  padding: 0 15px;
+  background: var(--white);
+  color: var(--ink);
+  font-size: 16px;
+}
+
+.jobSheet > header > button {
+  width: 44px;
+  height: 44px;
+}
+
+.selectedMedia > span {
+  min-height: 48px;
+  grid-template-columns: minmax(0, 1fr) auto 44px;
+  padding-block: 2px;
+}
+
+.selectedMedia button {
+  width: 44px;
+  height: 44px;
+}
+
+@media (max-height: 700px) {
+  .authLoginForm input,
+  .authLoginForm .primaryAction {
+    min-height: 44px;
+    height: 44px;
+  }
+}
+
+@media (max-width: 380px) {
+  .agendaEditRow {
+    grid-template-columns: 92px 1fr 44px;
+  }
+
+  .stopEditRow {
+    grid-template-columns: 28px 84px 1fr 44px;
+  }
+
+  .stopEditRow > button {
+    width: 44px;
+  }
+}
