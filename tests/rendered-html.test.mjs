@@ -101,6 +101,19 @@ test("phone navigation, narrow touch targets and Master archive reporting stay w
   assert.match(importRoute, /preview\.impacts\.reduce/u);
 });
 
+test("all four guest message purposes are reachable in the UI and travel binds to one exact route", async () => {
+  const [guestUi, preflightRoute] = await Promise.all([
+    readFile(new URL("../app/GuestCoordinationApp.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/api/guest/messages/preflight/route.ts", import.meta.url), "utf8"),
+  ]);
+  for (const purpose of ["invitation", "agenda", "travel", "stay"]) assert.match(guestUi, new RegExp(`purpose: "${purpose}"`));
+  assert.match(guestUi, /Send stay details/);
+  assert.match(guestUi, /travelPlanId: plan\.id/);
+  assert.match(guestUi, /travelPlanId: audience\.travelPlanId/);
+  assert.match(preflightRoute, /Choose the exact travel plan to send/);
+  assert.match(preflightRoute, /eq\(travelPlans\.id, travelPlanId!\)/);
+});
+
 test("no workbook or environment-secret file is present in the repository", async () => {
   const root = path.resolve(new URL("..", import.meta.url).pathname.replace(/^\/(.:)/u, "$1"));
   const names = await walk(root, root);

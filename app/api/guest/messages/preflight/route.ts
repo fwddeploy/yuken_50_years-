@@ -4,7 +4,7 @@ import { groupAgendaItems, guestCategories, guestGroups, guestStays, guests, hot
 import { GUEST_EVENT_DETAILS, preflightMessages, type GuestEvent, type MessageChannel, type MessagePurpose } from "../../../../../src/domain/guest-contract";
 import { authenticateRequest } from "../../../../../src/server/session";
 
-type PreflightBody = { purpose?: MessagePurpose; channel?: MessageChannel; groupId?: string; event?: GuestEvent; agendaDate?: string; guestIds?: string[] };
+type PreflightBody = { purpose?: MessagePurpose; channel?: MessageChannel; groupId?: string; event?: GuestEvent; agendaDate?: string; travelPlanId?: string; guestIds?: string[] };
 
 export async function POST(request: Request) {
   const user = await authenticateRequest(request);
@@ -15,6 +15,8 @@ export async function POST(request: Request) {
   if (!guestIds.length || guestIds.length > 5000) return Response.json({ error: "Choose between 1 and 5,000 guests." }, { status: 400 });
   if (body.event !== undefined && body.event !== "malur" && body.event !== "taj") return Response.json({ error: "Event must be Malur or Taj." }, { status: 400 });
   if ((body.purpose === "invitation" || body.purpose === "travel") && !body.event) return Response.json({ error: "Choose Malur or Taj for this message." }, { status: 400 });
+  const travelPlanId = body.travelPlanId?.trim();
+  if (body.purpose === "travel" && !travelPlanId) return Response.json({ error: "Choose the exact travel plan to send." }, { status: 400 });
   if (body.purpose === "agenda" && (!body.groupId || !body.agendaDate)) return Response.json({ error: "Choose a guest group and agenda date." }, { status: 400 });
 
   const db = getDb();
@@ -32,7 +34,10 @@ export async function POST(request: Request) {
   const [templateRows, agendaRows, planRows, planCategoryRows, stopRows, stayRows] = await Promise.all([
     db.select().from(messageTemplates).where(and(eq(messageTemplates.purpose, body.purpose), eq(messageTemplates.channel, body.channel), eq(messageTemplates.status, "approved"))),
     body.groupId && body.agendaDate ? db.select().from(groupAgendaItems).where(and(eq(groupAgendaItems.groupId, body.groupId), eq(groupAgendaItems.agendaDate, body.agendaDate), eq(groupAgendaItems.active, true))) : Promise.resolve([]),
-    body.event ? db.select().from(travelPlans).where(and(eq(travelPlans.event, body.event), eq(travelPlans.active, true))) : Promise.resolve([]),
+    body.event ? body.purpose === "travel"
+      ? db.select().from(travelPlans).where(and(eq(travelPlans.id, travelPlanId!), eq(travelPlans.event, body.event), eq(travelPlans.active, true)))
+      : db.select().from(travelPlans).where(and(eq(travelPlans.event, body.event), eq(travelPlans.active, true)))
+      : Promise.resolve([]),
     db.select().from(travelPlanCategories),
     db.select().from(travelStops).where(eq(travelStops.active, true)),
     db.select({ guestId: guestStays.guestId, hotelId: guestStays.hotelId, roomNumber: guestStays.roomNumber, hotelName: hotels.name }).from(guestStays).innerJoin(hotels, eq(hotels.id, guestStays.hotelId)).where(inArray(guestStays.guestId, guestIds)),

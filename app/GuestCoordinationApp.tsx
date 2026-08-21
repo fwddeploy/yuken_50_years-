@@ -7,7 +7,7 @@ import { previewUser, type EventUser } from "../src/demo/event-preview";
 import { previewGuestSnapshot, type GuestAgendaItem, type GuestGroup, type GuestRecord, type GuestSnapshot, type GuestTravelPlan } from "../src/demo/guest-preview";
 
 type GuestTab = "mine" | "invitations" | "guests" | "travel" | "stays";
-type SendAudience = { title: string; purpose: MessagePurpose; guests: GuestRecord[]; group?: GuestGroup; date?: string; event?: GuestEvent };
+type SendAudience = { title: string; purpose: MessagePurpose; guests: GuestRecord[]; group?: GuestGroup; date?: string; event?: GuestEvent; travelPlanId?: string };
 
 const guestTabs: { id: GuestTab; icon: string; label: string }[] = [
   { id: "mine", icon: "◎", label: "Mine" },
@@ -140,8 +140,8 @@ export default function GuestCoordinationApp({ user, back, signOut }: { user: Ev
         {tab === "mine" && <MineView user={user} snapshot={snapshot} send={setSendAudience} saveAgenda={saveAgenda} />}
         {tab === "invitations" && <InvitationsView user={user} preview={preview} snapshot={snapshot} send={setSendAudience} notify={setToast} />}
         {tab === "guests" && <GuestsView snapshot={snapshot} save={saveGuest} archive={archiveGuest} />}
-        {tab === "travel" && <TravelView snapshot={snapshot} save={saveTravel} />}
-        {tab === "stays" && <StaysView snapshot={snapshot} save={saveStay} />}
+        {tab === "travel" && <TravelView snapshot={snapshot} save={saveTravel} send={setSendAudience} />}
+        {tab === "stays" && <StaysView snapshot={snapshot} save={saveStay} send={setSendAudience} />}
       </>}
     </div>
     <nav className="eventTabs guestTabs" aria-label="Guest coordination">
@@ -217,7 +217,7 @@ function GuestsView({ snapshot, save, archive }: { snapshot: GuestSnapshot; save
   </>;
 }
 
-function TravelView({ snapshot, save }: { snapshot: GuestSnapshot; save: (plan: GuestTravelPlan) => void | Promise<void> }) {
+function TravelView({ snapshot, save, send }: { snapshot: GuestSnapshot; save: (plan: GuestTravelPlan) => void | Promise<void>; send: (audience: SendAudience) => void }) {
   const [event, setEvent] = useState<GuestEvent>("malur");
   const [query, setQuery] = useState("");
   const [selected, setSelected] = useState<GuestTravelPlan | null>(null);
@@ -229,21 +229,24 @@ function TravelView({ snapshot, save }: { snapshot: GuestSnapshot; save: (plan: 
     <div className="sectionTitle guestSectionTitle"><div><p className="eyebrow">Shared routes and vehicles</p><h2>Travel plans</h2></div><span>{plans.length} plans</span></div>
     <div className="travelGrid">{plans.map(plan => {
       const missing = [!plan.vehicleNumber && "vehicle", !plan.driverName && "driver", !plan.driverPhone && "driver phone"].filter(Boolean) as string[];
-      return <button className="travelCard" key={plan.id} onClick={() => setSelected(plan)}><header><span className="travelMode">{plan.mode}</span><div><b>{plan.name}</b><small>{formatDate(plan.date)}</small></div><i>›</i></header><p>{plan.routeName}</p><div className="categoryPills">{plan.categories.map(category => <span key={category.id}>{category.name}</span>)}</div><ol>{plan.stops.slice(0, 3).map(stop => <li key={stop.id}><time>{formatTime(stop.time)}</time><span>{stop.place}</span></li>)}</ol>{missing.length ? <div className="inlineWarning">Add {missing.join(", ")}</div> : <div className="inlineReady">Vehicle and driver ready</div>}</button>;
+      const categoryIds = new Set(plan.categories.map(category => category.id));
+      const guests = snapshot.guests.filter(guest => categoryIds.has(guest.categoryId) && guest.invitations.some(invitation => invitation.event === plan.event && invitation.invited));
+      return <article className="travelCard" key={plan.id}><header><span className="travelMode">{plan.mode}</span><div><b>{plan.name}</b><small>{formatDate(plan.date)}</small></div></header><p>{plan.routeName}</p><div className="categoryPills">{plan.categories.map(category => <span key={category.id}>{category.name}</span>)}</div><ol>{plan.stops.slice(0, 3).map(stop => <li key={stop.id}><time>{formatTime(stop.time)}</time><span>{stop.place}</span></li>)}</ol>{missing.length ? <div className="inlineWarning">Add {missing.join(", ")}</div> : <div className="inlineReady">Vehicle and driver ready</div>}<footer><button className="secondaryAction" onClick={() => setSelected(plan)}>Edit route</button><button className="primaryAction" disabled={Boolean(missing.length) || !guests.length} onClick={() => send({ title: plan.name, purpose: "travel", guests, event: plan.event, travelPlanId: plan.id })}>Send to all <span>{guests.length}</span></button></footer></article>;
     })}</div>{!plans.length && <div className="quietState"><b>No travel plans for this event</b><span>Add the first category route when movement details are known.</span></div>}
     {selected && <TravelSheet plan={selected} categories={snapshot.categories} close={() => setSelected(null)} save={plan => { void save(plan); setSelected(null); }} />}
   </>;
 }
 
-function StaysView({ snapshot, save }: { snapshot: GuestSnapshot; save: (guestId: string, hotelId: string, room: string) => void }) {
+function StaysView({ snapshot, save, send }: { snapshot: GuestSnapshot; save: (guestId: string, hotelId: string, room: string) => void; send: (audience: SendAudience) => void }) {
   const [query, setQuery] = useState("");
   const [show, setShow] = useState<"all" | "missing">("all");
   const [selected, setSelected] = useState<GuestRecord | null>(null);
   const filtered = snapshot.guests.filter(guest => matchesGuest(guest, query) && (show === "all" || !guest.stay?.hotelId || !guest.stay.roomNumber));
   const missing = snapshot.guests.filter(guest => !guest.stay?.hotelId || !guest.stay.roomNumber).length;
+  const ready = filtered.filter(guest => guest.stay?.hotelId && guest.stay.roomNumber);
   return <>
     <section className="guestHero staysHero"><div><p className="eyebrow">Assign by guest name</p><h1>Hotels and rooms</h1><p>Search, select the right guest, choose a hotel and enter the room.</p></div><span className={missing ? "heroAttention" : "heroReady"}><b>{missing}</b> need details</span></section>
-    <section className="guestToolbar staysSearch"><SearchBox value={query} change={setQuery} placeholder="Type a guest name" /><div className="choiceRow" role="group" aria-label="Stay assignment status"><button className={show === "all" ? "active" : ""} onClick={() => setShow("all")}>All guests</button><button className={show === "missing" ? "active" : ""} onClick={() => setShow("missing")}>Needs assignment <b>{missing}</b></button></div></section>
+    <section className="guestToolbar staysSearch"><SearchBox value={query} change={setQuery} placeholder="Type a guest name" /><div className="choiceRow" role="group" aria-label="Stay assignment status"><button className={show === "all" ? "active" : ""} onClick={() => setShow("all")}>All guests</button><button className={show === "missing" ? "active" : ""} onClick={() => setShow("missing")}>Needs assignment <b>{missing}</b></button></div><button className="primaryAction sendAllAction" disabled={!ready.length} onClick={() => send({ title: "Hotel and room details", purpose: "stay", guests: ready })}>Send stay details <span>{ready.length}</span></button></section>
     <div className="resultSummary"><b>{filtered.length}</b> matching guests</div>
     <div className="guestList stayList">{filtered.map(guest => <button className="guestRow" key={guest.id} onClick={() => setSelected(guest)}><GuestIdentity guest={guest} /><span className={guest.stay?.hotelId && guest.stay.roomNumber ? "stayAssigned" : "stayMissing"}>{guest.stay?.hotelId ? `${guest.stay.hotelName}${guest.stay.roomNumber ? ` · ${guest.stay.roomNumber}` : " · Room needed"}` : "Assign hotel"}</span><i>›</i></button>)}</div>
     {selected && <StaySheet guest={selected} hotels={snapshot.hotels} close={() => setSelected(null)} save={(hotelId, room) => { save(selected.id, hotelId, room); setSelected(null); }} />}
@@ -276,7 +279,7 @@ function SendSheet({ audience, snapshot, preview, close, notify }: { audience: S
     if (channel === "whatsapp" && !guest.phone) reasons.push("WhatsApp number missing");
     if (channel === "email" && !guest.email) reasons.push("Email missing");
     if (audience.purpose === "agenda" && audience.group && !audience.group.agenda.some(item => item.date === audience.date)) reasons.push("Agenda missing");
-    if (audience.purpose === "travel" && !snapshot.travelPlans.some(plan => plan.categories.some(category => category.id === guest.categoryId))) reasons.push("Travel plan missing");
+    if (audience.purpose === "travel" && !snapshot.travelPlans.some(plan => plan.id === audience.travelPlanId && plan.event === audience.event && plan.categories.some(category => category.id === guest.categoryId))) reasons.push("Travel plan missing");
     if (audience.purpose === "stay" && (!guest.stay?.hotelId || !guest.stay.roomNumber)) reasons.push("Hotel or room missing");
     return { guest, reasons };
   }), [audience, channel, snapshot.travelPlans]);
@@ -293,7 +296,7 @@ function SendSheet({ audience, snapshot, preview, close, notify }: { audience: S
       setBusy(false); close(); return;
     }
     try {
-      const response = await fetch("/api/guest/messages/preflight", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ purpose: audience.purpose, channel, groupId: audience.group?.id, event: audience.event, agendaDate: audience.date, guestIds: audience.guests.map(guest => guest.id) }) });
+      const response = await fetch("/api/guest/messages/preflight", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ purpose: audience.purpose, channel, groupId: audience.group?.id, event: audience.event, agendaDate: audience.date, travelPlanId: audience.travelPlanId, guestIds: audience.guests.map(guest => guest.id) }) });
       const payload = await response.json() as { error?: string; batchId?: string; ready?: number; skipped?: number; notSent?: { guestId: string; guestName: string; reason?: string; missing?: string[] }[] };
       if (!response.ok) throw new Error(payload.error || "Message check could not be completed.");
       if (!payload.batchId) throw new Error("Message review did not create a send batch.");
