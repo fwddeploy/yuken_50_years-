@@ -84,6 +84,23 @@ test("phone inputs and every approved app-managed creation path are wired", asyn
   assert.match(guestRoute, /belongs to the Master Sheet/u);
 });
 
+test("phone navigation, narrow touch targets and Master archive reporting stay wired", async () => {
+  const [eventUi, guestUi, guestCss, importRoute] = await Promise.all([
+    readFile(new URL("../app/EventOperationsApp.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/GuestCoordinationApp.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/guest.css", import.meta.url), "utf8"),
+    readFile(new URL("../app/api/master/import/route.ts", import.meta.url), "utf8"),
+  ]);
+  for (const source of [eventUi, guestUi]) {
+    assert.match(source, /window\.history\.pushState/u);
+    assert.match(source, /popstate/u);
+  }
+  assert.match(eventUi, /replaceState/u);
+  assert.match(guestCss, /agendaEditRow>button\{width:44px;height:48px/u);
+  assert.match(guestCss, /stopEditRow>button\{width:44px;height:46px/u);
+  assert.match(importRoute, /preview\.impacts\.reduce/u);
+});
+
 test("no workbook or environment-secret file is present in the repository", async () => {
   const root = path.resolve(new URL("..", import.meta.url).pathname.replace(/^\/(.:)/u, "$1"));
   const names = await walk(root, root);

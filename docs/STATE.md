@@ -25,6 +25,8 @@ Updated: 2026-08-21
 - Parent-bound agenda-line and travel-stop mutations prevent client-supplied child IDs from moving records across guest groups or travel plans.
 - Protected Event-update media: bounded phone file chooser, server MIME/signature validation, private R2 storage, D1 metadata, authenticated no-store reads and byte-range playback.
 - App-managed Budget creation and Travel-plan creation, Master-managed guest removal guard, app-guest archive and work-area switching from both app headers.
+- Phone/browser Back and Forward history across work-area, Event tabs and Guest tabs; narrow-screen agenda/travel remove controls now meet the 44px target.
+- Master apply responses now report the archive impact from the exact confirmed preview, including rows omitted from a replacement workbook.
 
 ## Evidence so far
 
@@ -57,6 +59,11 @@ Updated: 2026-08-21
 - Private Cloudflare-backed Sites version 4 deployed successfully. Its live D1 read-back exposes all 24 expected application tables, including attachment metadata.
 - Remote unified test Master import first reproduced one Cloudflare PBKDF2 limit failure at 210,000 iterations. After changing the portable setting to Cloudflare's 100,000-iteration ceiling and rerunning the test/build, the second preview and apply succeeded: 2,106 applied, 0 rejected, 0 warnings and 0 archived. The live `sync_batches` row independently reads `applied` with the same 2,106/0 counts.
 - The 2,106 remote test-Master records comprise 22 people, 13 sections, 202 operational jobs, 11 guest categories, 9 guest groups, 1,845 guests and 4 hotels. The remote attachment table is empty as expected before a user uploads media.
+- Exhaustive phone interaction pass initially produced 189 passes from 190 measured checks and reproduced one real failure: browser Back left the PWA instead of moving through app screens. After the history fix, the six exact Back/Forward paths across Event and Guest work areas passed 6 of 6; the corrected 320px agenda and travel remove targets measured 44×48 and 44×46 respectively.
+- Live private D1/R2 acceptance passed 49 of 49 checks across authentication/PIN replacement, Event snapshots and updates, forged-media rejection, private full/range photo reads, Budget, Guest create/edit/archive, templates and channel preflight, Stay, Agenda, Travel, sign-out and later login.
+- Live replacement-Master removal/restore passed 10 of 10 checks: the preview reported one impacted Guest, confirmed apply removed it from active Guest workflows, restoration returned it, and the final preview reported 0 remaining archive impacts.
+- Final regression completed the production build and passed 22 of 22 automated tests; ESLint reported 0 errors and 0 warnings, the production dependency audit reported 0 vulnerabilities, and `git diff --check` passed.
+- Final security diff review closed all 4 changed runtime source files with 0 candidates and 0 reportable findings. TAC status remained unverified because its advisory connector was not connected; all four inventory files were reviewed by the parent agent.
 
 ## Not complete
 

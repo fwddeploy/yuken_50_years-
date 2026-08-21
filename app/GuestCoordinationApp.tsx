@@ -27,6 +27,22 @@ export default function GuestCoordinationApp({ user, back, signOut }: { user: Ev
   const [sendAudience, setSendAudience] = useState<SendAudience | null>(null);
   const [toast, setToast] = useState("");
 
+  useEffect(() => {
+    function restoreGuestTab(event: PopStateEvent) {
+      const state = event.state as { yilApp?: boolean; screen?: string; guestTab?: GuestTab } | null;
+      if (state?.yilApp && state.screen === "guest" && state.guestTab && (["mine", "invitations", "guests", "travel", "stays"] as GuestTab[]).includes(state.guestTab)) {
+        setSendAudience(null); setTab(state.guestTab); window.scrollTo(0, 0);
+      }
+    }
+    window.addEventListener("popstate", restoreGuestTab);
+    return () => window.removeEventListener("popstate", restoreGuestTab);
+  }, []);
+
+  function navigateGuestTab(next: GuestTab) {
+    window.history.pushState({ ...(window.history.state ?? {}), yilApp: true, screen: "guest", guestTab: next }, "");
+    setSendAudience(null); setTab(next); window.scrollTo(0, 0);
+  }
+
   async function loadSnapshot() {
     const response = await fetch("/api/guest/snapshot", { cache: "no-store" });
     const payload = await response.json() as GuestSnapshot & { error?: string };
@@ -128,7 +144,7 @@ export default function GuestCoordinationApp({ user, back, signOut }: { user: Ev
       </>}
     </div>
     <nav className="eventTabs guestTabs" aria-label="Guest coordination">
-      {guestTabs.map(item => <button key={item.id} className={tab === item.id ? "active" : ""} aria-current={tab === item.id ? "page" : undefined} onClick={() => { setTab(item.id); window.scrollTo(0, 0); }}><span>{item.icon}</span>{item.label}</button>)}
+      {guestTabs.map(item => <button key={item.id} className={tab === item.id ? "active" : ""} aria-current={tab === item.id ? "page" : undefined} onClick={() => navigateGuestTab(item.id)}><span>{item.icon}</span>{item.label}</button>)}
     </nav>
     {sendAudience && <SendSheet audience={sendAudience} snapshot={snapshot} preview={preview} close={() => setSendAudience(null)} notify={setToast} />}
     {toast && <div className="toast" role="status">{toast}</div>}

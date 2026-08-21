@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, useEffect, useRef, useState } from "react";
 import Image from "next/image";
 import { validateMediaSelection } from "../src/domain/media";
 import { canEditJob } from "../src/domain/master-contract";
@@ -29,12 +29,48 @@ export default function EventOperationsApp() {
   const [authError, setAuthError] = useState("");
   const [signingIn, setSigningIn] = useState(false);
   const [toast, setToast] = useState("");
+  const userRef = useRef<EventUser | null>(null);
+
+  useEffect(() => { userRef.current = user; }, [user]);
+
+  useEffect(() => {
+    window.history.replaceState({ ...(window.history.state ?? {}), yilApp: true, screen: "login", eventTab: "home" }, "");
+    function restoreFromHistory(event: PopStateEvent) {
+      const state = event.state as { yilApp?: boolean; screen?: Screen; eventTab?: EventTab } | null;
+      if (!state?.yilApp) return;
+      if (!userRef.current && state.screen !== "login") {
+        window.history.replaceState({ yilApp: true, screen: "login", eventTab: "home" }, "");
+        setScreen("login"); setTab("home"); setSelectedJobId(null); setBudgetOpen(false); return;
+      }
+      if (state.screen && (["login", "pin", "choose", "event", "guest"] as Screen[]).includes(state.screen)) setScreen(state.screen);
+      if (state.eventTab && (["home", "updates", "malur", "taj", "budget"] as EventTab[]).includes(state.eventTab)) setTab(state.eventTab);
+      setSelectedJobId(null); setBudgetOpen(false); window.scrollTo(0, 0);
+    }
+    window.addEventListener("popstate", restoreFromHistory);
+    return () => window.removeEventListener("popstate", restoreFromHistory);
+  }, []);
+
+  function navigateScreen(next: Screen, replace = false) {
+    const state: Record<string, unknown> = { ...(window.history.state ?? {}), yilApp: true, screen: next, eventTab: tab };
+    if (next === "guest") state.guestTab = "mine"; else delete state.guestTab;
+    window.history[replace ? "replaceState" : "pushState"](state, "");
+    setSelectedJobId(null); setBudgetOpen(false); setScreen(next); window.scrollTo(0, 0);
+  }
+
+  function navigateEventTab(next: EventTab) {
+    window.history.pushState({ ...(window.history.state ?? {}), yilApp: true, screen: "event", eventTab: next }, "");
+    setTab(next); window.scrollTo(0, 0);
+  }
 
   useEffect(() => {
     fetch("/api/auth/me", { cache: "no-store" }).then(async response => {
       if (!response.ok) return;
       const payload = await response.json() as { user?: EventUser; requiresPinChange?: boolean };
-      if (payload.user) { setUser(payload.user); setScreen(payload.requiresPinChange ? "pin" : "choose"); }
+      if (payload.user) {
+        const nextScreen = payload.requiresPinChange ? "pin" : "choose";
+        setUser(payload.user); setScreen(nextScreen);
+        window.history.replaceState({ ...(window.history.state ?? {}), yilApp: true, screen: nextScreen, eventTab: "home" }, "");
+      }
     }).catch(() => undefined);
   }, []);
 
@@ -63,13 +99,13 @@ export default function EventOperationsApp() {
       const response = await fetch("/api/auth/login", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ employeeNumber: form.get("employeeNumber"), pin: form.get("pin") }) });
       const payload = await response.json() as { user?: EventUser; requiresPinChange?: boolean; error?: string };
       if (!response.ok || !payload.user) throw new Error(payload.error || "Sign in failed.");
-      setUser(payload.user); setScreen(payload.requiresPinChange ? "pin" : "choose");
+      setUser(payload.user); navigateScreen(payload.requiresPinChange ? "pin" : "choose", true);
     } catch (error) { setAuthError(error instanceof Error ? error.message : "Sign in failed."); }
     finally { setSigningIn(false); }
   }
 
   function openDevelopmentPreview() {
-    setUser(previewUser); setScreen("choose"); setAuthError("");
+    setUser(previewUser); navigateScreen("choose", true); setAuthError("");
   }
 
   async function changePin(event: FormEvent<HTMLFormElement>) {
@@ -80,12 +116,12 @@ export default function EventOperationsApp() {
     const response = await fetch("/api/auth/pin", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ pin }) });
     const payload = await response.json() as { error?: string };
     if (!response.ok) { setAuthError(payload.error || "PIN could not be changed."); return; }
-    setScreen("choose"); setAuthError("");
+    navigateScreen("choose", true); setAuthError("");
   }
 
   async function signOut() {
     await fetch("/api/auth/logout", { method: "POST" }).catch(() => undefined);
-    setUser(null); setScreen("login"); setTab("home");
+    setUser(null); userRef.current = null; setTab("home"); navigateScreen("login", true);
   }
 
   async function saveJob(next: EventJob, updateMessage: string, attachments: File[]) {
@@ -120,12 +156,12 @@ export default function EventOperationsApp() {
   const selectedJob = jobs.find(job => job.id === selectedJobId) ?? null;
   if (screen === "login") return <LoginScreen submit={signIn} error={authError} busy={signingIn} preview={process.env.NODE_ENV === "development" ? openDevelopmentPreview : undefined} />;
   if (screen === "pin" && user) return <PinScreen user={user} submit={changePin} error={authError} />;
-  if (screen === "choose" && user) return <WorkAreaScreen user={user} openEvent={() => setScreen("event")} openGuest={() => setScreen("guest")} signOut={signOut} />;
+  if (screen === "choose" && user) return <WorkAreaScreen user={user} openEvent={() => navigateScreen("event")} openGuest={() => navigateScreen("guest")} signOut={signOut} />;
   if (!user) return null;
-  if (screen === "guest") return <GuestCoordinationApp user={user} back={() => setScreen("choose")} signOut={signOut} />;
+  if (screen === "guest") return <GuestCoordinationApp user={user} back={() => navigateScreen("choose")} signOut={signOut} />;
 
   return <main className="eventApp">
-    <EventHeader tab={tab} user={user} back={() => setScreen("choose")} signOut={signOut} />
+    <EventHeader tab={tab} user={user} back={() => navigateScreen("choose")} signOut={signOut} />
     <div className="eventBody">
       {tab === "home" && <HomeView sections={sections} jobs={jobs} openJob={setSelectedJobId} />}
       {tab === "updates" && <UpdatesView jobs={jobs} openJob={setSelectedJobId} />}
@@ -133,7 +169,7 @@ export default function EventOperationsApp() {
       {tab === "budget" && <BudgetView entries={budget} add={() => setBudgetOpen(true)} />}
     </div>
     <nav className="eventTabs" aria-label="Event Work">
-      {tabs.filter(item => !item.core || user.isCore).map(item => <button key={item.id} className={tab === item.id ? "active" : ""} aria-current={tab === item.id ? "page" : undefined} onClick={() => { setTab(item.id); window.scrollTo(0, 0); }}><span>{item.icon}</span>{item.label}</button>)}
+      {tabs.filter(item => !item.core || user.isCore).map(item => <button key={item.id} className={tab === item.id ? "active" : ""} aria-current={tab === item.id ? "page" : undefined} onClick={() => navigateEventTab(item.id)}><span>{item.icon}</span>{item.label}</button>)}
     </nav>
     {selectedJob && <JobSheet job={selectedJob} user={user} close={() => setSelectedJobId(null)} save={saveJob} />}
     {budgetOpen && <BudgetSheet jobs={jobs} close={() => setBudgetOpen(false)} save={saveBudget} />}
