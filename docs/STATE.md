@@ -87,6 +87,7 @@ Updated: 2026-08-21
 - Private Sites version 14 deployed successfully from exact commit `4c87c3d8af1a09dab95dcf27b0c66139da8976b8` with environment revision 4.
 - Live version-14 Travel preflight rejected 1 of 1 requests that omitted the route ID with `Choose the exact travel plan to send`, then accepted 1 of 1 otherwise-identical requests carrying the exact plan ID with 1 ready and 0 skipped. No external message was sent by this check.
 - The first physical RSVP-link open reproduced the Sites owner-only ChatGPT sign-in gate before the application route. After explicit owner approval, Sites access revision 2 changed to public for dummy-data RSVP testing. An unauthenticated reproduction returned HTTP 200 at the YIL URL with the employee login present and no ChatGPT gate. Unauthenticated Event, Guest and Budget requests were denied 3 of 3 with HTTP 401. Production approval of the shared bootstrap PIN remains open.
+- Physical RSVP acceptance is now proven on the authorised phone: the live D1 audit recorded `pending` to `accepted` at `2026-08-21T12:05:23.774Z`, and an independent authenticated Guest snapshot read the same Malur invitation as `accepted`. This verifies the public link, token lookup, database update and employee-side readback for the QA record.
 
 ## Not complete
 
