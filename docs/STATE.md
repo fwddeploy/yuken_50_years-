@@ -8,7 +8,7 @@ Updated: 2026-08-21
 - Product-specific employee sign-in, first-PIN replacement and work-area choice.
 - Event Work tabs: Home, Updates, Malur, Taj and core-only Budget.
 - Responsive Event activity list and assignment-aware activity detail flow.
-- D1 schema and migrations for 24 tables covering identity, Event Work, Budget, sessions, sync/audit, Guest Coordination, messaging and attachment metadata.
+- D1 schema and migrations for 25 tables covering identity, Event Work, Budget, sessions, sync/audit, Guest Coordination, messaging, attachment metadata and durable Google Sheets delivery.
 - Protected authentication, session, PIN change, snapshot, job update, reassignment, Budget and Master import endpoints.
 - Master contract for the exact `1 People`, `2 Sections` and `3 Jobs` headers.
 - Install manifest, offline route, service worker and explicit update prompt.
@@ -24,9 +24,12 @@ Updated: 2026-08-21
 - Unified 11-sheet test Master generated outside Git with dynamic row handling and explicit missing-data warnings.
 - Parent-bound agenda-line and travel-stop mutations prevent client-supplied child IDs from moving records across guest groups or travel plans.
 - Protected Event-update media: bounded phone file chooser, server MIME/signature validation, private R2 storage, D1 metadata, authenticated no-store reads and byte-range playback.
-- App-managed Budget creation and Travel-plan creation, Master-managed guest removal guard, app-guest archive and work-area switching from both app headers.
+- App-managed Budget creation and Travel-plan creation, confirmed guest archive with Google Sheets write-back, and work-area switching from both app headers.
 - Phone/browser Back and Forward history across work-area, Event tabs and Guest tabs; narrow-screen agenda/travel remove controls now meet the 44px target.
 - Master apply responses now report the archive impact from the exact confirmed preview, including rows omitted from a replacement workbook.
+- Google Sheets integration source: permanent-ID app-to-Sheet upserts, a coalescing D1 outbox with bounded retry, Apps Script locking, Sheet-to-app impact preview and exact-version apply confirmation.
+- Release-specific service-worker generation and update checks on registration, focus, reconnection and visibility changes.
+- A tracked, production-target-guarded staged load harness for 10, 25, 40, 75 and 100 authenticated sessions.
 
 ## Evidence so far
 
@@ -64,17 +67,18 @@ Updated: 2026-08-21
 - Live replacement-Master removal/restore passed 10 of 10 checks: the preview reported one impacted Guest, confirmed apply removed it from active Guest workflows, restoration returned it, and the final preview reported 0 remaining archive impacts.
 - Final regression completed the production build and passed 22 of 22 automated tests; ESLint reported 0 errors and 0 warnings, the production dependency audit reported 0 vulnerabilities, and `git diff --check` passed.
 - Final security diff review closed all 4 changed runtime source files with 0 candidates and 0 reportable findings. TAC status remained unverified because its advisory connector was not connected; all four inventory files were reviewed by the parent agent.
+- Private production staged load completed 1,000 of 1,000 HTTP operations with 0 failures: 250 logins, 500 authenticated Event/Guest snapshot reads and 250 logouts across 10/25/40/75/100-session stages. At 100 sessions, login p95 was 4,399 ms, the two snapshot-wave p95s were 7,154 ms and 7,015 ms, and logout p95 was 4,435 ms. This is capacity evidence for the current test fixture, not real-data accuracy evidence; the measured snapshot latency remains an optimisation target.
+- Release-readiness build completed and all 25 of 25 automated tests passed; ESLint and `git diff --check` passed with 0 errors.
+- A blind independent baseline audit reproduced 0 of 1 Google connectors, 0 of 1 update prompts with byte-identical service workers and no safe tracked production load harness. The subsequent implementation directly addresses all three reproduced gaps; live Google delivery remains unproven until real connector credentials are supplied.
 
 ## Not complete
 
-- Writing permanent hidden record IDs back to the human Master Sheet.
-- Google Sheets Apps Script/service-account connection.
+- Deploying the supplied Apps Script into the customer's Google account and adding its `/exec` URL plus shared secret to the private Sites environment. Until then, live Google delivery is unproven and queued writes remain in D1.
 - Real-data acceptance remains unproven by definition; every supplied workbook is treated only as a test fixture and the real production dataset has not been imported.
 - External WhatsApp and email provider selection, credentials and delivery worker. The current product stops at an honest preflight and does not claim to send.
 - RSVP token creation is reserved for the future provider-backed send operation; RSVP storage and response handling exist.
 - Core committee review and approval of final English, German and Japanese wording.
-- Production load testing against the provisioned D1 account.
 - Physical iPhone/Android acceptance of the native keyboard, photo picker, camera capture and real video codec playback. Browser input contracts and synthetic R2 range behavior are proven; the physical device behavior is unproven.
 - Public/custom-domain deployment, load testing and pilot acceptance. An owner-only phone-review preview is authorised separately.
-- Two-way Google Sheets write-back or a generated Excel export for app-created/edited rows. Today app writes are immediately authoritative in D1 and auditable, but they do not rewrite a local `.xlsx` file.
+- Live two-way Google Sheets acceptance against a customer-owned workbook. The application and Apps Script paths are implemented and tested structurally; external delivery/read-back has not been reproduced without the two connector values.
 - Public employee login approval. The shared first-time PIN must be replaced with unique claim codes or all claims completed behind a private access gate; login throttling also needs an edge policy and uniform failure responses.

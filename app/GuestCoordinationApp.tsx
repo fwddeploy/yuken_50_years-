@@ -25,6 +25,7 @@ export default function GuestCoordinationApp({ user, back, signOut }: { user: Ev
   const [snapshot, setSnapshot] = useState<GuestSnapshot>(() => preview ? previewGuestSnapshot : emptySnapshot);
   const [loading, setLoading] = useState(!preview);
   const [sendAudience, setSendAudience] = useState<SendAudience | null>(null);
+  const [sheetSyncOpen, setSheetSyncOpen] = useState(false);
   const [toast, setToast] = useState("");
 
   useEffect(() => {
@@ -133,7 +134,7 @@ export default function GuestCoordinationApp({ user, back, signOut }: { user: Ev
 
   const title = { mine: "My guest groups", invitations: "Invitations", guests: "Guest directory", travel: "Guest travel", stays: "Hotels and rooms" }[tab];
   return <main className="eventApp guestApp">
-    <GuestHeader title={title} user={user} back={back} signOut={signOut} />
+    <GuestHeader title={title} user={user} back={back} signOut={signOut} openSheetSync={() => setSheetSyncOpen(true)} />
     <div className="eventBody guestBody">
       {loading ? <GuestLoading /> : <>
         {tab === "mine" && <MineView user={user} snapshot={snapshot} send={setSendAudience} saveAgenda={saveAgenda} />}
@@ -146,13 +147,14 @@ export default function GuestCoordinationApp({ user, back, signOut }: { user: Ev
     <nav className="eventTabs guestTabs" aria-label="Guest coordination">
       {guestTabs.map(item => <button key={item.id} className={tab === item.id ? "active" : ""} aria-current={tab === item.id ? "page" : undefined} onClick={() => navigateGuestTab(item.id)}><span>{item.icon}</span>{item.label}</button>)}
     </nav>
-    {sendAudience && <SendSheet audience={sendAudience} snapshot={snapshot} preview={preview} close={() => setSendAudience(null)} notify={setToast} />}
+      {sendAudience && <SendSheet audience={sendAudience} snapshot={snapshot} preview={preview} close={() => setSendAudience(null)} notify={setToast} />}
+      {sheetSyncOpen && <GoogleSheetsSyncSheet close={() => setSheetSyncOpen(false)} notify={setToast} />}
     {toast && <div className="toast" role="status">{toast}</div>}
   </main>;
 }
 
-function GuestHeader({ title, user, back, signOut }: { title: string; user: EventUser; back: () => void; signOut: () => void }) {
-  return <header className="eventHeader guestHeader"><div className="headerBrand"><span>YIL <b>50</b></span><div><strong>{title}</strong><small>Guest coordination</small></div></div><details className="userMenu"><summary aria-label="Open account menu"><span>{user.initials}</span></summary><div><b>{user.fullName}</b><small>{user.responsibility}</small><button onClick={back}>Switch work area</button><button onClick={signOut}>Sign out</button></div></details></header>;
+function GuestHeader({ title, user, back, signOut, openSheetSync }: { title: string; user: EventUser; back: () => void; signOut: () => void; openSheetSync: () => void }) {
+  return <header className="eventHeader guestHeader"><div className="headerBrand"><span>YIL <b>50</b></span><div><strong>{title}</strong><small>Guest coordination</small></div></div><details className="userMenu"><summary aria-label="Open account menu"><span>{user.initials}</span></summary><div><b>{user.fullName}</b><small>{user.responsibility}</small>{user.isCore && <button onClick={openSheetSync}>Sync Master Sheet</button>}<button onClick={back}>Switch work area</button><button onClick={signOut}>Sign out</button></div></details></header>;
 }
 
 function GuestLoading() {
@@ -299,6 +301,48 @@ function SendSheet({ audience, snapshot, preview, close, notify }: { audience: S
   }
 
   return <Sheet title="Send to all" subtitle={audience.title} close={close}><div className="sendSummary"><b>{audience.guests.length}</b><span>guests in this audience</span></div><div className="languageBreakdown">{Object.entries(languageCounts).map(([language, count]) => <span key={language}><b>{count}</b> {languageName(language)}</span>)}</div><fieldset className="channelChoices"><legend>Choose how to send</legend><button className={channel === "whatsapp" ? "active" : ""} onClick={() => setChannel("whatsapp")}><span>W</span><b>WhatsApp</b><small>Approved language template</small></button><button className={channel === "email" ? "active" : ""} onClick={() => setChannel("email")}><span>@</span><b>Email</b><small>English, German or Japanese</small></button></fieldset>{channel && <div className="preflightPanel"><div><span className="readyCount"><b>{ready.length}</b> ready</span><span className="skipCount"><b>{skipped.length}</b> not sent</span></div>{skipped.length > 0 && <details><summary>See what needs fixing</summary><ul>{skipped.map(item => <li key={item.guest.id}><b>{item.guest.name}</b><span>{item.reasons.join(" · ")}</span></li>)}</ul></details>}</div>}<button className="primaryAction sheetAction" disabled={!channel || !ready.length || busy} onClick={confirm}>{busy ? "Checking…" : channel ? `Confirm ${channel === "whatsapp" ? "WhatsApp" : "Email"} for ${ready.length}` : "Choose WhatsApp or Email"}</button><p className="providerNote">Messages use fixed, centrally approved templates. Coordinators do not type or edit the wording.</p></Sheet>;
+}
+
+type SheetSyncStatus = { configured: boolean; pending: number; failed: number; delivered: number; error?: string };
+type SheetSyncPreview = { confirmationToken: string; sourceVersion: string; impacts: { entity: string; count: number; sample: { id: string; label: string }[] }[]; preservedHistory: Record<string, number> };
+
+function GoogleSheetsSyncSheet({ close, notify }: { close: () => void; notify: (message: string) => void }) {
+  const [status, setStatus] = useState<SheetSyncStatus | null>(null);
+  const [preview, setPreview] = useState<SheetSyncPreview | null>(null);
+  const [busy, setBusy] = useState(false);
+  async function request(action?: "push" | "pull-preview" | "pull-apply") {
+    setBusy(true);
+    try {
+      const response = await fetch("/api/integrations/google-sheets", action ? { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action, confirmationToken: preview?.confirmationToken }) } : { cache: "no-store" });
+      const payload = await response.json() as SheetSyncStatus & { preview?: SheetSyncPreview; status?: string; archived?: number; error?: string };
+      if (!response.ok) throw new Error(payload.error || "Master Sheet sync could not be completed.");
+      if (payload.preview) setPreview(payload.preview);
+      if (typeof payload.configured === "boolean") setStatus(payload);
+      if (action === "push") notify(payload.pending || payload.failed ? `${payload.pending + payload.failed} Sheet changes still need retry.` : "All queued app changes are in Google Sheets.");
+      if (action === "pull-apply") { notify(`Master Sheet applied. ${payload.archived ?? 0} records removed from active workflows.`); close(); }
+    } catch (error) { notify(error instanceof Error ? error.message : "Master Sheet sync could not be completed."); }
+    finally { setBusy(false); }
+  }
+  useEffect(() => {
+    let active = true;
+    fetch("/api/integrations/google-sheets", { cache: "no-store" }).then(async response => {
+      const payload = await response.json() as SheetSyncStatus;
+      if (!response.ok) throw new Error(payload.error || "Master Sheet status could not be loaded.");
+      if (active) setStatus(payload);
+    }).catch(error => { if (active) notify(error instanceof Error ? error.message : "Master Sheet status could not be loaded."); });
+    return () => { active = false; };
+  }, [notify]);
+  const removalCount = preview?.impacts.reduce((sum, item) => sum + item.count, 0) ?? 0;
+  return <Sheet title="Sync Master Sheet" subtitle="Core committee" close={close}>
+    {!status ? <div className="quietState"><b>Checking connection…</b></div> : !status.configured ? <div className="inlineWarning"><b>Google Sheets is not connected</b><span>Add the web-app URL and shared secret in the private hosting environment.</span></div> : <>
+      <div className="sendSummary"><b>{status.pending + status.failed}</b><span>app changes waiting to reach the Sheet</span></div>
+      <div className="languageBreakdown"><span><b>{status.delivered}</b> delivered</span><span><b>{status.failed}</b> need retry</span></div>
+      <button className="secondaryAction sheetAction" disabled={busy || (!status.pending && !status.failed)} onClick={() => void request("push")}>{busy ? "Working…" : "Send app changes now"}</button>
+      <div className="plainRule"><b>Sheet to app</b><span>Check the full workbook first. Nothing is removed until you review and confirm the exact version.</span></div>
+      <button className="primaryAction sheetAction" disabled={busy} onClick={() => void request("pull-preview")}>{busy ? "Checking…" : "Check Master Sheet changes"}</button>
+      {preview && <div className="preflightPanel"><div><span className={removalCount ? "skipCount" : "readyCount"}><b>{removalCount}</b> records leave active workflows</span></div><ul>{preview.impacts.filter(item => item.count).map(item => <li key={item.entity}><b>{item.entity}</b><span>{item.count} removed</span></li>)}</ul><button className="dangerAction" disabled={busy} onClick={() => { if (window.confirm(`Apply this exact Master Sheet version? ${removalCount} records will leave active workflows; audit and live history stay preserved.`)) void request("pull-apply"); }}>Apply this Sheet version</button></div>}
+    </>}
+  </Sheet>;
 }
 
 function GuestEditSheet({ guest, event, snapshot, close, save, archive }: { guest?: GuestRecord; event: GuestEvent; snapshot: GuestSnapshot; close: () => void; save: (guest: GuestRecord) => void; archive: (id: string) => void | Promise<void> }) {

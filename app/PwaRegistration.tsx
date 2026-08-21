@@ -9,6 +9,7 @@ export default function PwaRegistration() {
   useEffect(() => {
     if (!("serviceWorker" in navigator)) return;
     let disposed = false;
+    let removeUpdateChecks: (() => void) | undefined;
     navigator.serviceWorker.register("/sw.js", { scope: "/" }).then(registration => {
       if (disposed) return;
       if (registration.waiting) setWaiting(registration.waiting);
@@ -18,6 +19,16 @@ export default function PwaRegistration() {
           if (worker.state === "installed" && navigator.serviceWorker.controller) setWaiting(registration.waiting);
         });
       });
+      void registration.update();
+      const checkForUpdate = () => void registration.update();
+      window.addEventListener("focus", checkForUpdate);
+      window.addEventListener("online", checkForUpdate);
+      document.addEventListener("visibilitychange", checkForUpdate);
+      removeUpdateChecks = () => {
+        window.removeEventListener("focus", checkForUpdate);
+        window.removeEventListener("online", checkForUpdate);
+        document.removeEventListener("visibilitychange", checkForUpdate);
+      };
     }).catch(() => undefined);
     const reload = () => {
       if (reloading.current) return;
@@ -25,7 +36,7 @@ export default function PwaRegistration() {
       window.location.reload();
     };
     navigator.serviceWorker.addEventListener("controllerchange", reload);
-    return () => { disposed = true; navigator.serviceWorker.removeEventListener("controllerchange", reload); };
+    return () => { disposed = true; removeUpdateChecks?.(); navigator.serviceWorker.removeEventListener("controllerchange", reload); };
   }, []);
 
   if (!waiting) return null;

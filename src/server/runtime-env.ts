@@ -6,6 +6,8 @@ export type RuntimeEnv = {
   INITIAL_LOGIN_PIN?: string;
   SESSION_PEPPER?: string;
   MASTER_IMPORT_KEY?: string;
+  GOOGLE_SHEETS_WEB_APP_URL?: string;
+  GOOGLE_SHEETS_SHARED_SECRET?: string;
 };
 
 export function getMediaBucket() {

@@ -3,6 +3,7 @@ import { getDb } from "../../../../../../db";
 import { groupAgendaItems, guestGroups } from "../../../../../../db/schema";
 import { authenticateRequest } from "../../../../../../src/server/session";
 import { getRuntimeEnv } from "../../../../../../src/server/runtime-env";
+import { flushGoogleSheetOutbox, queueSheetSyncStatement } from "../../../../../../src/server/google-sheets";
 
 type AgendaInput = { date?: string; items?: { id?: string; time?: string; title?: string; details?: string }[] };
 
@@ -35,6 +36,8 @@ export async function PUT(request: Request, context: { params: Promise<{ id: str
       WHERE group_agenda_items.group_id=excluded.group_id
   `).bind(item.id, id, date, item.time, item.title, item.details, now, now));
   statements.push(database.prepare("INSERT INTO audit_events (id, actor_id, action, entity_type, entity_id, before_json, after_json, created_at) VALUES (?, ?, 'guest-group.agenda-updated', 'guest_group', ?, ?, ?, ?)").bind(crypto.randomUUID(), user.personId, id, JSON.stringify(before), JSON.stringify({ date, items: cleaned }), now));
+  statements.push(queueSheetSyncStatement(database, { entityType: "group_agenda", entityId: `${id}:${date}`, operation: "replace_scope", payload: { groupName: group.name, date, items: cleaned.map(item => ({ recordId: item.id, groupName: group.name, date, time: item.time, title: item.title, details: item.details, removed: false })) }, actorId: user.personId, now }));
   await database.batch(statements);
+  await flushGoogleSheetOutbox(10);
   return Response.json({ groupId: id, date, items: cleaned }, { headers: { "Cache-Control": "no-store" } });
 }

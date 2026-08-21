@@ -20,6 +20,7 @@
 - D1 owns structured photo/video metadata; a private Cloudflare R2 bucket owns the bytes. Attachments are available only through an authenticated application route and are never stored in Excel, Google Sheets, Git or public browser storage.
 - Each Event update accepts at most three JPG, PNG, WebP, HEIC, MP4, MOV or WebM files; photos are limited to 10 MB each and all attached media to 50 MB per update.
 - Event activities remain Master-owned and cannot be created ad hoc in the application. Budget, progress, updates, attachments, agenda edits, stay assignments, app-created guests and app-created travel plans are operational D1 data.
-- A Master-managed guest can be edited in the application but can only be removed through the Master replacement workflow. An app-created guest can be archived in the application. Both paths retain operational history and audit records.
+- A guest may be edited or archived in the application after an explicit confirmation. D1 changes immediately and retains operational history/audit; the same permanent-ID change is queued for Google Sheets and retried without rolling back the user save when Google is temporarily unavailable.
+- Google Sheets synchronisation is outbound from the private application to a locked Apps Script web app. App writes use a coalescing D1 outbox; Sheet-to-app imports retain the existing impact preview and exact-version confirmation. The workbook is never allowed to overwrite RSVP, check-in, message history, progress, Budget, attachments, sessions or audit history.
 
 Cloudflare Sites, Workers and D1 are the hosting path. DigitalOcean is not introduced without measured need; the domain and import contracts remain independent of the UI.

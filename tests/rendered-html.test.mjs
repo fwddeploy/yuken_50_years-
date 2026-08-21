@@ -41,7 +41,7 @@ test("source contains Event Work, Guest coordination and production boundaries",
     readFile(new URL("../src/server/import-master.ts", import.meta.url), "utf8"),
     readFile(new URL("../app/api/guest/groups/[id]/agenda/route.ts", import.meta.url), "utf8"),
     readFile(new URL("../app/api/guest/travel/[id]/route.ts", import.meta.url), "utf8"),
-    readFile(new URL("../public/sw.js", import.meta.url), "utf8"),
+    readFile(new URL("../src/pwa/service-worker.ts", import.meta.url), "utf8"),
     readFile(new URL("../package.json", import.meta.url), "utf8"),
   ]);
   for (const tab of ["Home", "Updates", "Malur", "Taj", "Budget"]) assert.match(component, new RegExp(`label: "${tab}"`));
@@ -81,7 +81,7 @@ test("phone inputs and every approved app-managed creation path are wired", asyn
   assert.match(guestUi, /type="tel"[^>]+inputMode="tel"/u);
   assert.match(budgetRoute, /Choose a valid budget status/u);
   assert.match(travelRoute, /travel plan with this name already exists/u);
-  assert.match(guestRoute, /belongs to the Master Sheet/u);
+  assert.match(guestRoute, /sheetSyncOutbox/u);
 });
 
 test("phone navigation, narrow touch targets and Master archive reporting stay wired", async () => {

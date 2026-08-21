@@ -132,6 +132,24 @@ export const syncBatches = sqliteTable("sync_batches", {
   completedAt: text("completed_at"),
 });
 
+export const sheetSyncOutbox = sqliteTable("sheet_sync_outbox", {
+  id: text("id").primaryKey(),
+  entityType: text("entity_type", { enum: ["guest", "group_agenda", "travel_plan"] }).notNull(),
+  entityId: text("entity_id").notNull(),
+  operation: text("operation", { enum: ["upsert", "archive", "replace_scope"] }).notNull(),
+  payloadJson: text("payload_json").notNull(),
+  status: text("status", { enum: ["pending", "delivered", "failed"] }).notNull().default("pending"),
+  attempts: integer("attempts").notNull().default(0),
+  lastError: text("last_error"),
+  nextAttemptAt: text("next_attempt_at"),
+  deliveredAt: text("delivered_at"),
+  actorId: text("actor_id").references(() => people.id),
+  ...timestamps,
+}, table => [
+  uniqueIndex("uidx_sheet_sync_entity").on(table.entityType, table.entityId),
+  index("idx_sheet_sync_delivery").on(table.status, table.nextAttemptAt, table.updatedAt),
+]);
+
 export const auditEvents = sqliteTable("audit_events", {
   id: text("id").primaryKey(),
   actorId: text("actor_id").references(() => people.id),
