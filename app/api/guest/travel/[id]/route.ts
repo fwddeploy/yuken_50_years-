@@ -6,7 +6,7 @@ import { getRuntimeEnv } from "../../../../../src/server/runtime-env";
 import { flushGoogleSheetOutbox, queueSheetSyncStatement } from "../../../../../src/server/google-sheets";
 import { waitUntil } from "cloudflare:workers";
 
-type TravelInput = { name?: string; event?: "malur" | "taj"; date?: string; mode?: string; routeName?: string; vehicleNumber?: string; driverName?: string; driverPhone?: string; categoryIds?: string[]; stops?: { id?: string; time?: string; place?: string }[] };
+type TravelInput = { name?: string; event?: "malur" | "taj"; date?: string; mode?: string; routeName?: string; vehicleNumber?: string; driverName?: string; driverPhone?: string; conductorName?: string; conductorPhone?: string; categoryIds?: string[]; stops?: { id?: string; time?: string; place?: string }[] };
 
 export async function PUT(request: Request, context: { params: Promise<{ id: string }> }) {
   const user = await authenticateRequest(request);
@@ -14,13 +14,13 @@ export async function PUT(request: Request, context: { params: Promise<{ id: str
   const { id } = await context.params;
   const body = await request.json() as TravelInput;
   const name = body.name?.trim() ?? "", event = body.event, date = body.date?.trim() ?? "", mode = body.mode?.trim() ?? "", routeName = body.routeName?.trim() ?? "";
-  const vehicleNumber = body.vehicleNumber?.trim() || null, driverName = body.driverName?.trim() || null, driverPhone = body.driverPhone?.trim() || null;
+  const vehicleNumber = body.vehicleNumber?.trim() || null, driverName = body.driverName?.trim() || null, driverPhone = body.driverPhone?.trim() || null, conductorName = body.conductorName?.trim() || null, conductorPhone = body.conductorPhone?.trim() || null;
   const categoryIds = [...new Set((body.categoryIds ?? []).map(value => value.trim()).filter(Boolean))];
   const stops = (body.stops ?? []).map((stop, index) => ({ id: stop.id?.trim() || crypto.randomUUID(), order: index + 1, time: stop.time?.trim() ?? "", place: stop.place?.trim() ?? "" }));
   if (!name || (event !== "malur" && event !== "taj") || !/^\d{4}-\d{2}-\d{2}$/u.test(date) || !mode || !routeName) return Response.json({ error: "Plan name, event, date, travel mode and route name are required." }, { status: 400 });
   if (!categoryIds.length) return Response.json({ error: "Choose at least one guest category." }, { status: 400 });
   if (!stops.length || stops.length > 20 || stops.some(stop => !/^([01]\d|2[0-3]):[0-5]\d$/u.test(stop.time) || !stop.place)) return Response.json({ error: "Add between 1 and 20 ordered stops with a time and place." }, { status: 400 });
-  if (name.length > 180 || routeName.length > 180 || mode.length > 60 || (vehicleNumber?.length ?? 0) > 60 || (driverName?.length ?? 0) > 120 || (driverPhone?.length ?? 0) > 30 || stops.some(stop => stop.place.length > 200)) return Response.json({ error: "One or more travel fields are too long." }, { status: 400 });
+  if (name.length > 180 || routeName.length > 180 || mode.length > 60 || (vehicleNumber?.length ?? 0) > 60 || (driverName?.length ?? 0) > 120 || (driverPhone?.length ?? 0) > 30 || (conductorName?.length ?? 0) > 120 || (conductorPhone?.length ?? 0) > 30 || stops.some(stop => stop.place.length > 200)) return Response.json({ error: "One or more travel fields are too long." }, { status: 400 });
 
   const db = getDb();
   const [[plan], categories, beforeCategories, beforeStops, submittedStops] = await Promise.all([
@@ -38,10 +38,10 @@ export async function PUT(request: Request, context: { params: Promise<{ id: str
   const now = new Date().toISOString();
   const database = getRuntimeEnv().DB;
   const statements: D1PreparedStatement[] = [
-    database.prepare(`INSERT INTO travel_plans (id, name, event, travel_date, mode, route_name, vehicle_number, driver_name, driver_phone, active, source_updated_at, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 'app', ?, ?)
+    database.prepare(`INSERT INTO travel_plans (id, name, event, travel_date, mode, route_name, vehicle_number, driver_name, driver_phone, conductor_name, conductor_phone, active, source_updated_at, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 'app', ?, ?)
       ON CONFLICT(id) DO UPDATE SET name=excluded.name, event=excluded.event, travel_date=excluded.travel_date, mode=excluded.mode,
-        route_name=excluded.route_name, vehicle_number=excluded.vehicle_number, driver_name=excluded.driver_name, driver_phone=excluded.driver_phone, updated_at=excluded.updated_at`).bind(id, name, event, date, mode, routeName, vehicleNumber, driverName, driverPhone, now, now),
+        route_name=excluded.route_name, vehicle_number=excluded.vehicle_number, driver_name=excluded.driver_name, driver_phone=excluded.driver_phone, conductor_name=excluded.conductor_name, conductor_phone=excluded.conductor_phone, updated_at=excluded.updated_at`).bind(id, name, event, date, mode, routeName, vehicleNumber, driverName, driverPhone, conductorName, conductorPhone, now, now),
     database.prepare("DELETE FROM travel_plan_categories WHERE travel_plan_id=?").bind(id),
     database.prepare("UPDATE travel_stops SET active=0, updated_at=? WHERE travel_plan_id=? AND active=1").bind(now, id),
   ];
