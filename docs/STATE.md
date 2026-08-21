@@ -73,15 +73,16 @@ Updated: 2026-08-21
 - Private Sites release 6 installed the byte-distinct `yil-event-shell-aea173091a4c` worker over the previous fixed `v2` worker. The browser displayed 1 of 1 update prompts; selecting Refresh update produced 1 of 1 controlled reloads, removed the old cache and left 0 waiting workers.
 - Private Sites release 7 then produced a second byte-distinct worker, `yil-event-shell-bc13e14cee94`. It reached `installed/waiting` in 1 of 1 checks, showed the update banner, and the user-facing refresh promoted it in 1 of 1 checks; the old release-6 cache was removed and 0 waiting workers remained.
 - Independent re-audit passed the PWA transition and staged-load harness, then reproduced three Sheets edge cases plus one standalone TypeScript configuration failure. The follow-up closes them with row-hash conflict detection, post-apply Sheet baselines, automatic permanent IDs for human-created rows, background delivery/retry during app writes and active Guest reads, partial-batch acknowledgement, and an explicit no-emit TypeScript configuration. Final re-verification passed 25 of 25 tests, ESLint, standalone TypeScript and `git diff --check`.
+- The verified 11-sheet test Master is now a native Google Sheet in the customer-owned Google account, and its deployed Apps Script `/exec` connector directly returned 22 people, 140 source jobs, 1,845 guests, 11 categories and 9 groups with HTTP 200.
+- The first production Sheet preview reproduced HTTP 502 with `The operation was aborted`: the real 1,845-guest export took longer than the previous 8-second client timeout. Release 9 raised only that bounded connector timeout to 30 seconds; the production build, 25 of 25 tests, ESLint and standalone TypeScript all passed before deployment.
+- Post-fix live two-way Sheet acceptance passed 19 of 19 checks. Exact-version pull/apply baselined 2,106 records with 0 archives; a disposable app guest was then created, updated and archived, all three states were independently read back from Google Sheets, the archived guest left active app workflows, and final outbox status was 0 pending / 0 failed.
 
 ## Not complete
 
-- Deploying the supplied Apps Script into the customer's Google account and adding its `/exec` URL plus shared secret to the private Sites environment. Until then, live Google delivery is unproven and queued writes remain in D1.
 - Real-data acceptance remains unproven by definition; every supplied workbook is treated only as a test fixture and the real production dataset has not been imported.
 - External WhatsApp and email provider selection, credentials and delivery worker. The current product stops at an honest preflight and does not claim to send.
 - RSVP token creation is reserved for the future provider-backed send operation; RSVP storage and response handling exist.
 - Core committee review and approval of final English, German and Japanese wording.
 - Physical iPhone/Android acceptance of the native keyboard, photo picker, camera capture and real video codec playback. Browser input contracts and synthetic R2 range behavior are proven; the physical device behavior is unproven.
 - Public/custom-domain deployment, load testing and pilot acceptance. An owner-only phone-review preview is authorised separately.
-- Live two-way Google Sheets acceptance against a customer-owned workbook. The application and Apps Script paths are implemented and tested structurally; external delivery/read-back has not been reproduced without the two connector values.
 - Public employee login approval. The shared first-time PIN must be replaced with unique claim codes or all claims completed behind a private access gate; login throttling also needs an edge policy and uniform failure responses.
