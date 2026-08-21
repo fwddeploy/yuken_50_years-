@@ -101,7 +101,7 @@ async function postAceleText(credentials: ReturnType<typeof aceleCredentials>, t
     method: "POST",
     headers: { Accept: "application/json", "Content-Type": "application/x-www-form-urlencoded" },
     body: form.toString(),
-    redirect: "error",
+    redirect: "manual",
   });
 }
 
@@ -119,7 +119,7 @@ async function postAceleWorkflow(workflow: WhatsAppWorkflow, to: string, variabl
       template_name: workflow.name,
       template_language: workflow.language,
     }),
-    redirect: "error",
+    redirect: "manual",
   });
 }
 
@@ -129,6 +129,9 @@ async function postAcele(url: string, init: RequestInit): Promise<DeliveryResult
     response = await fetch(url, { ...init, signal: AbortSignal.timeout(PROVIDER_TIMEOUT_MS), cache: "no-store" });
   } catch (error) {
     return { ok: false, status: "delivery-unknown", error: `${safeError(error)}; the provider may have accepted the message, so it was not retried.` };
+  }
+  if (response.status >= 300 && response.status < 400) {
+    return { ok: false, status: "delivery-unknown", error: `Acele returned HTTP ${response.status} with a redirect that was not followed; delivery is unknown, so the message was not retried.` };
   }
   let payload: { status?: string | number; wa_message_id?: string; message_id?: string; message?: string };
   try {

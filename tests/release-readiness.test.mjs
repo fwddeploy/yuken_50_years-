@@ -67,3 +67,11 @@ test("WhatsApp and email invitations keep independent RSVP links for one guest e
   assert.match(rsvp, /from\(guestInvitationRsvpTokens\)/);
   assert.match(rsvp, /const record = current \?\? legacy/);
 });
+
+test("WhatsApp delivery uses the Cloudflare-supported manual redirect mode and refuses redirects", async () => {
+  const delivery = await readFile(new URL("../src/server/message-delivery.ts", import.meta.url), "utf8");
+  assert.equal(delivery.match(/redirect: "manual"/gu)?.length, 2);
+  assert.doesNotMatch(delivery, /redirect: "error"/u);
+  assert.match(delivery, /response\.status >= 300 && response\.status < 400/);
+  assert.match(delivery, /redirect that was not followed; delivery is unknown, so the message was not retried/);
+});
