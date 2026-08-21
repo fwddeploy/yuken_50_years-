@@ -42,3 +42,12 @@ test("Google Sheets connector has durable outbox, pull preview and exact-version
   assert.match(connector, /failureStatements/);
   assert.match(route, /baselineGoogleSheetsMaster/);
 });
+
+test("message delivery migration preserves existing D1 recipients with a SQLite-safe rebuild", async () => {
+  const migration = await readFile(new URL("../drizzle/0004_flat_inertia.sql", import.meta.url), "utf8");
+  assert.match(migration, /CREATE TABLE `__new_message_recipients`/);
+  assert.match(migration, /INSERT INTO `__new_message_recipients`/);
+  assert.match(migration, /COALESCE\(`sent_at`, `created_at`, CURRENT_TIMESTAMP\)/);
+  assert.match(migration, /CREATE UNIQUE INDEX `uidx_message_recipient_batch_guest`/);
+  assert.doesNotMatch(migration, /ADD `updated_at` text DEFAULT CURRENT_TIMESTAMP/u);
+});

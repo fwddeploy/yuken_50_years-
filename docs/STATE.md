@@ -78,6 +78,7 @@ Updated: 2026-08-21
 - Post-fix live two-way Sheet acceptance passed 19 of 19 checks. Exact-version pull/apply baselined 2,106 records with 0 archives; a disposable app guest was then created, updated and archived, all three states were independently read back from Google Sheets, the archived guest left active app workflows, and final outbox status was 0 pending / 0 failed.
 - Provider-backed message delivery is implemented behind an explicit Send confirmation and bounded batches. Recipient contacts and rendered variables are frozen at preflight, each send is atomically claimed, RSVP links are created only at invitation send time, only token hashes are stored, test sends are server-allowlisted, and ambiguous provider responses are retained as `delivery-unknown` without blind retry.
 - Release-candidate verification after the delivery implementation completed the production build and passed 28 of 28 automated tests. ESLint, standalone TypeScript, `git diff --check`, and the production dependency audit all passed; the audit found 0 known vulnerabilities across 6 production dependencies.
+- The first delivery-version publish was stopped before release because Cloudflare D1 rejected SQLite's non-constant `ALTER TABLE` default. The replacement table-rebuild migration then executed 100% of six migration stages against a seeded legacy recipient and preserved 10 of 10 checked values plus all three expected indexes.
 
 ## Not complete
 
