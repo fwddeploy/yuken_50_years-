@@ -43,7 +43,7 @@ export async function GET(request: Request) {
       const stay = stayByGuest.get(guest.id);
       return { ...guest, groupId: guest.groupId ?? undefined, groupName: guest.groupId ? groupName.get(guest.groupId) : undefined, phone: guest.phone ?? undefined, email: guest.email ?? undefined, invitations: invitationsByGuest.get(guest.id) ?? [], stay: stay ? { hotelId: stay.hotelId, hotelName: hotelName.get(stay.hotelId) ?? "Hotel", roomNumber: stay.roomNumber } : undefined };
     }),
-    travelPlans: planRows.map(plan => ({ id: plan.id, name: plan.name, event: plan.event, date: plan.travelDate, mode: plan.mode, routeName: plan.routeName, vehicleNumber: plan.vehicleNumber ?? undefined, driverName: plan.driverName ?? undefined, driverPhone: plan.driverPhone ?? undefined, categories: categoriesByPlan.get(plan.id) ?? [], stops: (stopsByPlan.get(plan.id) ?? []).map(stop => ({ id: stop.id, order: stop.stopOrder, time: stop.stopTime, place: stop.place })) })),
+    travelPlans: planRows.map(plan => ({ id: plan.id, name: plan.name, event: plan.event, date: plan.travelDate, mode: plan.mode, routeName: plan.routeName, vehicleNumber: plan.vehicleNumber ?? undefined, driverName: plan.driverName ?? undefined, driverPhone: plan.driverPhone ?? undefined, conductorName: plan.conductorName ?? undefined, conductorPhone: plan.conductorPhone ?? undefined, categories: categoriesByPlan.get(plan.id) ?? [], stops: (stopsByPlan.get(plan.id) ?? []).map(stop => ({ id: stop.id, order: stop.stopOrder, time: stop.stopTime, place: stop.place })) })),
     hotels: hotelRows,
   }, { headers: { "Cache-Control": "no-store" } });
 }
