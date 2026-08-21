@@ -270,6 +270,7 @@ function GuestIdentity({ guest }: { guest: GuestRecord }) {
 function SendSheet({ audience, snapshot, preview, close, notify }: { audience: SendAudience; snapshot: GuestSnapshot; preview: boolean; close: () => void; notify: (message: string) => void }) {
   const [channel, setChannel] = useState<MessageChannel | null>(null);
   const [busy, setBusy] = useState(false);
+  const [review, setReview] = useState<{ batchId: string; ready: number; skipped: number; notSent: { guestId: string; guestName: string; reason?: string; missing?: string[] }[] } | null>(null);
   const readiness = useMemo(() => audience.guests.map(guest => {
     const reasons: string[] = [];
     if (channel === "whatsapp" && !guest.phone) reasons.push("WhatsApp number missing");
@@ -283,7 +284,7 @@ function SendSheet({ audience, snapshot, preview, close, notify }: { audience: S
   const skipped = channel ? readiness.filter(item => item.reasons.length) : [];
   const languageCounts = audience.guests.reduce<Record<string, number>>((counts, guest) => ({ ...counts, [guest.preferredLanguage]: (counts[guest.preferredLanguage] || 0) + 1 }), {});
 
-  async function confirm() {
+  async function reviewMessages() {
     if (!channel || !ready.length) return;
     setBusy(true);
     if (preview) {
@@ -293,14 +294,35 @@ function SendSheet({ audience, snapshot, preview, close, notify }: { audience: S
     }
     try {
       const response = await fetch("/api/guest/messages/preflight", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ purpose: audience.purpose, channel, groupId: audience.group?.id, event: audience.event, agendaDate: audience.date, guestIds: audience.guests.map(guest => guest.id) }) });
-      const payload = await response.json() as { error?: string; ready?: number; skipped?: number };
+      const payload = await response.json() as { error?: string; batchId?: string; ready?: number; skipped?: number; notSent?: { guestId: string; guestName: string; reason?: string; missing?: string[] }[] };
       if (!response.ok) throw new Error(payload.error || "Message check could not be completed.");
-      notify(`${payload.ready ?? 0} ready; ${payload.skipped ?? 0} not sent. Provider connection is still required.`); close();
+      if (!payload.batchId) throw new Error("Message review did not create a send batch.");
+      setReview({ batchId: payload.batchId, ready: payload.ready ?? 0, skipped: payload.skipped ?? 0, notSent: payload.notSent ?? [] });
     } catch (error) { notify(error instanceof Error ? error.message : "Message check could not be completed."); }
     finally { setBusy(false); }
   }
 
-  return <Sheet title="Send to all" subtitle={audience.title} close={close}><div className="sendSummary"><b>{audience.guests.length}</b><span>guests in this audience</span></div><div className="languageBreakdown">{Object.entries(languageCounts).map(([language, count]) => <span key={language}><b>{count}</b> {languageName(language)}</span>)}</div><fieldset className="channelChoices"><legend>Choose how to send</legend><button className={channel === "whatsapp" ? "active" : ""} onClick={() => setChannel("whatsapp")}><span>W</span><b>WhatsApp</b><small>Approved language template</small></button><button className={channel === "email" ? "active" : ""} onClick={() => setChannel("email")}><span>@</span><b>Email</b><small>English, German or Japanese</small></button></fieldset>{channel && <div className="preflightPanel"><div><span className="readyCount"><b>{ready.length}</b> ready</span><span className="skipCount"><b>{skipped.length}</b> not sent</span></div>{skipped.length > 0 && <details><summary>See what needs fixing</summary><ul>{skipped.map(item => <li key={item.guest.id}><b>{item.guest.name}</b><span>{item.reasons.join(" · ")}</span></li>)}</ul></details>}</div>}<button className="primaryAction sheetAction" disabled={!channel || !ready.length || busy} onClick={confirm}>{busy ? "Checking…" : channel ? `Confirm ${channel === "whatsapp" ? "WhatsApp" : "Email"} for ${ready.length}` : "Choose WhatsApp or Email"}</button><p className="providerNote">Messages use fixed, centrally approved templates. Coordinators do not type or edit the wording.</p></Sheet>;
+  async function sendNow() {
+    if (!channel || !review?.ready || busy) return;
+    if (!window.confirm(`Send ${review.ready} ${channel === "whatsapp" ? "WhatsApp" : "email"} messages now? ${review.skipped} guests will not be sent.`)) return;
+    setBusy(true);
+    try {
+      let summary: { remaining: number; accepted: number; failed: number; deliveryUnknown: number; skipped: number } | null = null;
+      for (let requestCount = 0; requestCount < 500; requestCount += 1) {
+        const response = await fetch("/api/guest/messages/send", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ batchId: review.batchId }) });
+        const payload = await response.json() as { error?: string; remaining?: number; accepted?: number; failed?: number; deliveryUnknown?: number; skipped?: number };
+        if (!response.ok) throw new Error(payload.error || "Messages could not be sent.");
+        summary = { remaining: payload.remaining ?? 0, accepted: payload.accepted ?? 0, failed: payload.failed ?? 0, deliveryUnknown: payload.deliveryUnknown ?? 0, skipped: payload.skipped ?? 0 };
+        if (!summary.remaining) break;
+      }
+      if (!summary || summary.remaining) throw new Error("The send batch did not finish. Open it again to review the remaining recipients.");
+      notify(`${summary.accepted} accepted by ${channel === "whatsapp" ? "WhatsApp" : "email"}; ${summary.failed} failed; ${summary.deliveryUnknown} need delivery review; ${summary.skipped} not sent.`);
+      close();
+    } catch (error) { notify(error instanceof Error ? error.message : "Messages could not be sent."); }
+    finally { setBusy(false); }
+  }
+
+  return <Sheet title="Send to all" subtitle={audience.title} close={close}><div className="sendSummary"><b>{audience.guests.length}</b><span>guests in this audience</span></div><div className="languageBreakdown">{Object.entries(languageCounts).map(([language, count]) => <span key={language}><b>{count}</b> {languageName(language)}</span>)}</div><fieldset className="channelChoices"><legend>Choose how to send</legend><button className={channel === "whatsapp" ? "active" : ""} onClick={() => { setChannel("whatsapp"); setReview(null); }}><span>W</span><b>WhatsApp</b><small>Approved language template</small></button><button className={channel === "email" ? "active" : ""} onClick={() => { setChannel("email"); setReview(null); }}><span>@</span><b>Email</b><small>English, German or Japanese</small></button></fieldset>{channel && <div className="preflightPanel"><div><span className="readyCount"><b>{review?.ready ?? ready.length}</b> ready</span><span className="skipCount"><b>{review?.skipped ?? skipped.length}</b> not sent</span></div>{!review && skipped.length > 0 && <details><summary>See what needs fixing</summary><ul>{skipped.map(item => <li key={item.guest.id}><b>{item.guest.name}</b><span>{item.reasons.join(" · ")}</span></li>)}</ul></details>}{review && review.notSent.length > 0 && <details><summary>See what needs fixing</summary><ul>{review.notSent.map(item => <li key={item.guestId}><b>{item.guestName}</b><span>{item.missing?.length ? item.missing.join(" · ") : item.reason || "Not ready"}</span></li>)}</ul></details>}</div>}<button className="primaryAction sheetAction" disabled={!channel || !ready.length || busy || Boolean(review && !review.ready)} onClick={() => void (review ? sendNow() : reviewMessages())}>{busy ? (review ? "Sending…" : "Checking…") : !channel ? "Choose WhatsApp or Email" : review ? `Send ${review.ready} now` : `Review ${ready.length} ${channel === "whatsapp" ? "WhatsApp" : "email"} messages`}</button><p className="providerNote">Messages use fixed, centrally approved templates. Coordinators do not type or edit the wording.</p></Sheet>;
 }
 
 type SheetSyncStatus = { configured: boolean; pending: number; failed: number; delivered: number; error?: string };

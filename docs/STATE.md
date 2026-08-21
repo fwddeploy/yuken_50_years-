@@ -76,12 +76,14 @@ Updated: 2026-08-21
 - The verified 11-sheet test Master is now a native Google Sheet in the customer-owned Google account, and its deployed Apps Script `/exec` connector directly returned 22 people, 140 source jobs, 1,845 guests, 11 categories and 9 groups with HTTP 200.
 - The first production Sheet preview reproduced HTTP 502 with `The operation was aborted`: the real 1,845-guest export took longer than the previous 8-second client timeout. Release 9 raised only that bounded connector timeout to 30 seconds; the production build, 25 of 25 tests, ESLint and standalone TypeScript all passed before deployment.
 - Post-fix live two-way Sheet acceptance passed 19 of 19 checks. Exact-version pull/apply baselined 2,106 records with 0 archives; a disposable app guest was then created, updated and archived, all three states were independently read back from Google Sheets, the archived guest left active app workflows, and final outbox status was 0 pending / 0 failed.
+- Provider-backed message delivery is implemented behind an explicit Send confirmation and bounded batches. Recipient contacts and rendered variables are frozen at preflight, each send is atomically claimed, RSVP links are created only at invitation send time, only token hashes are stored, test sends are server-allowlisted, and ambiguous provider responses are retained as `delivery-unknown` without blind retry.
+- Release-candidate verification after the delivery implementation completed the production build and passed 28 of 28 automated tests. ESLint, standalone TypeScript, `git diff --check`, and the production dependency audit all passed; the audit found 0 known vulnerabilities across 6 production dependencies.
 
 ## Not complete
 
 - Real-data acceptance remains unproven by definition; every supplied workbook is treated only as a test fixture and the real production dataset has not been imported.
-- External WhatsApp and email provider selection, credentials and delivery worker. The current product stops at an honest preflight and does not claim to send.
-- RSVP token creation is reserved for the future provider-backed send operation; RSVP storage and response handling exist.
+- Live deployed email provider acceptance and inbox readback remain unproven until the release is deployed and exercised only against the authorised test-recipient allowlist.
+- Live WhatsApp provider acceptance remains unproven until either an authorised test number opens a current 24-hour service window or the final templates and Acele workflows are approved and mapped.
 - Core committee review and approval of final English, German and Japanese wording.
 - Physical iPhone/Android acceptance of the native keyboard, photo picker, camera capture and real video codec playback. Browser input contracts and synthetic R2 range behavior are proven; the physical device behavior is unproven.
 - Public/custom-domain deployment, load testing and pilot acceptance. An owner-only phone-review preview is authorised separately.

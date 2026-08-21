@@ -12,6 +12,8 @@
 - Guest operational RSVP, message attempts/results, live activity and audit history stay in the database rather than the workbook.
 - Each guest has one explicit preferred language: English, German or Japanese. Language is never inferred from nationality or origin.
 - Guest messages use centrally approved, fixed templates selected automatically by message purpose, channel and guest language. Coordinators do not edit message wording.
+- External message delivery is fail-closed. Test mode permits only an explicit server-side email/WhatsApp recipient allowlist; production WhatsApp delivery additionally requires an exact Meta-approved Acele workflow mapping for every purpose and language.
+- Provider acceptance is not represented as guest delivery or reading. The database records accepted, delivered, read, failed and delivery-unknown separately; an unknown result is never retried blindly.
 - Guest travel is assigned by category only. Multiple categories may share a route or vehicle; individual guest travel overrides are out of scope.
 - Hotel and room are assigned to an individual guest by name. More than one guest may share a room number.
 - A group has one primary and one secondary coordinator. Both can manage and message that group.
