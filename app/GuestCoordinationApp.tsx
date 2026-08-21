@@ -1,6 +1,7 @@
 "use client";
 
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import { useSheetHistory } from "./sheet-history";
 import type { GuestEvent, MessageChannel, MessagePurpose, MessageTemplate } from "../src/domain/guest-contract";
 import { DEFAULT_MESSAGE_TEMPLATES } from "../src/domain/default-message-templates";
 import { previewUser, type EventUser } from "../src/demo/event-preview";
@@ -8,6 +9,7 @@ import { previewGuestSnapshot, type GuestAgendaItem, type GuestGroup, type Guest
 
 type GuestTab = "mine" | "invitations" | "guests" | "travel" | "stays";
 type SendAudience = { title: string; purpose: MessagePurpose; guests: GuestRecord[]; group?: GuestGroup; date?: string; event?: GuestEvent; travelPlanId?: string };
+type EventTeamMember = { id: string; initials: string; fullName: string };
 
 const guestTabs: { id: GuestTab; icon: string; label: string }[] = [
   { id: "mine", icon: "◎", label: "Mine" },
@@ -19,7 +21,7 @@ const guestTabs: { id: GuestTab; icon: string; label: string }[] = [
 
 const emptySnapshot: GuestSnapshot = { guests: [], categories: [], groups: [], travelPlans: [], hotels: [] };
 
-export default function GuestCoordinationApp({ user, back, signOut }: { user: EventUser; back: () => void; signOut: () => void }) {
+export default function GuestCoordinationApp({ user, team, back, signOut }: { user: EventUser; team: EventTeamMember[]; back: () => void; signOut: () => void }) {
   const preview = user.id === previewUser.id;
   const [tab, setTab] = useState<GuestTab>("mine");
   const [snapshot, setSnapshot] = useState<GuestSnapshot>(() => preview ? previewGuestSnapshot : emptySnapshot);
@@ -28,11 +30,15 @@ export default function GuestCoordinationApp({ user, back, signOut }: { user: Ev
   const [sheetSyncOpen, setSheetSyncOpen] = useState(false);
   const [toast, setToast] = useState("");
 
+  const tabRef = useRef<GuestTab>("mine");
+  useEffect(() => { tabRef.current = tab; }, [tab]);
+
   useEffect(() => {
     function restoreGuestTab(event: PopStateEvent) {
       const state = event.state as { yilApp?: boolean; screen?: string; guestTab?: GuestTab } | null;
       if (state?.yilApp && state.screen === "guest" && state.guestTab && (["mine", "invitations", "guests", "travel", "stays"] as GuestTab[]).includes(state.guestTab)) {
-        setSendAudience(null); setTab(state.guestTab); window.scrollTo(0, 0);
+        setSendAudience(null);
+        if (state.guestTab !== tabRef.current) { setTab(state.guestTab); window.scrollTo(0, 0); }
       }
     }
     window.addEventListener("popstate", restoreGuestTab);
@@ -125,7 +131,7 @@ export default function GuestCoordinationApp({ user, back, signOut }: { user: Ev
       setToast("Travel plan saved in this local preview."); return;
     }
     try {
-      const response = await fetch(`/api/guest/travel/${encodeURIComponent(next.id)}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: next.name, event: next.event, date: next.date, mode: next.mode, routeName: next.routeName, vehicleNumber: next.vehicleNumber, driverName: next.driverName, driverPhone: next.driverPhone, categoryIds: next.categories.map(category => category.id), stops: next.stops }) });
+      const response = await fetch(`/api/guest/travel/${encodeURIComponent(next.id)}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: next.name, event: next.event, date: next.date, mode: next.mode, routeName: next.routeName, vehicleNumber: next.vehicleNumber, driverName: next.driverName, driverPhone: next.driverPhone, conductorName: next.conductorName, conductorPhone: next.conductorPhone, categoryIds: next.categories.map(category => category.id), stops: next.stops }) });
       const payload = await response.json() as { error?: string };
       if (!response.ok) throw new Error(payload.error || "Travel plan could not be saved.");
       await loadSnapshot(); setToast("Travel plan saved.");
@@ -135,9 +141,10 @@ export default function GuestCoordinationApp({ user, back, signOut }: { user: Ev
   const title = { mine: "My guest groups", invitations: "Invitations", guests: "Guest directory", travel: "Guest travel", stays: "Hotels and rooms" }[tab];
   return <main className="eventApp guestApp">
     <GuestHeader title={title} user={user} back={back} signOut={signOut} openSheetSync={() => setSheetSyncOpen(true)} />
+    <GuestCommitteeStrip team={team} />
     <div className="eventBody guestBody">
       {loading ? <GuestLoading /> : <>
-        {tab === "mine" && <MineView user={user} snapshot={snapshot} send={setSendAudience} saveAgenda={saveAgenda} />}
+        {tab === "mine" && <MineView user={user} snapshot={snapshot} send={setSendAudience} saveAgenda={saveAgenda} saveTravel={saveTravel} />}
         {tab === "invitations" && <InvitationsView user={user} preview={preview} snapshot={snapshot} send={setSendAudience} notify={setToast} />}
         {tab === "guests" && <GuestsView snapshot={snapshot} save={saveGuest} archive={archiveGuest} />}
         {tab === "travel" && <TravelView snapshot={snapshot} save={saveTravel} send={setSendAudience} />}
@@ -154,29 +161,94 @@ export default function GuestCoordinationApp({ user, back, signOut }: { user: Ev
 }
 
 function GuestHeader({ title, user, back, signOut, openSheetSync }: { title: string; user: EventUser; back: () => void; signOut: () => void; openSheetSync: () => void }) {
-  return <header className="eventHeader guestHeader"><div className="headerBrand"><span>YIL <b>50</b></span><div><strong>{title}</strong><small>Guest coordination</small></div></div><details className="userMenu"><summary aria-label="Open account menu"><span>{user.initials}</span></summary><div><b>{user.fullName}</b><small>{user.responsibility}</small>{user.isCore && <button onClick={openSheetSync}>Sync Master Sheet</button>}<button onClick={back}>Switch work area</button><button onClick={signOut}>Sign out</button></div></details></header>;
+  return <header className="eventHeader guestHeader"><div className="headerBrand"><span>YIL <b>50</b></span><div><strong>{title}</strong><small>Guest coordination</small></div></div><div className="headerActions"><details className="userMenu"><summary aria-label="Open account menu"><span>{user.initials}</span></summary><div><b>{user.fullName}</b><small>{user.responsibility}</small>{user.isCore && <button onClick={openSheetSync}>Sync Master Sheet</button>}<button onClick={back}>Switch work area</button><button onClick={signOut}>Sign out</button></div></details></div></header>;
+}
+
+function GuestCommitteeStrip({ team }: { team: EventTeamMember[] }) {
+  if (!team.length) return null;
+  return <div className="committeeStrip guestCommitteeStrip"><span>Core<br />committee</span><div>{team.map(person => <span key={person.id} title={person.fullName} aria-label={person.fullName}>{person.initials}</span>)}</div></div>;
 }
 
 function GuestLoading() {
   return <div className="guestLoading" role="status"><span className="miniMark">YIL <b>50</b></span><p>Loading guest coordination…</p></div>;
 }
 
-function MineView({ user, snapshot, send, saveAgenda }: { user: EventUser; snapshot: GuestSnapshot; send: (audience: SendAudience) => void; saveAgenda: (groupId: string, date: string, items: GuestAgendaItem[]) => void | Promise<void> }) {
-  const availableDates = useMemo(() => [...new Set(snapshot.groups.flatMap(group => group.agenda.map(item => item.date)))].sort(), [snapshot.groups]);
-  const [dateIndex, setDateIndex] = useState(0);
-  const [editing, setEditing] = useState<GuestGroup | null>(null);
-  const selectedDate = availableDates[dateIndex] ?? "2026-11-15";
-  const groups = snapshot.groups.filter(group => user.isCore || group.primaryPersonId === user.id || group.secondaryPersonId === user.id);
+function MineView({ user, snapshot, send, saveAgenda, saveTravel }: { user: EventUser; snapshot: GuestSnapshot; send: (audience: SendAudience) => void; saveAgenda: (groupId: string, date: string, items: GuestAgendaItem[]) => void | Promise<void>; saveTravel: (plan: GuestTravelPlan) => void | Promise<void> }) {
+  const groups = useMemo(() => snapshot.groups.filter(group => user.isCore || group.primaryPersonId === user.id || group.secondaryPersonId === user.id), [snapshot.groups, user]);
+  const [groupId, setGroupId] = useState("");
+  const [segment, setSegment] = useState<"agenda" | "travel">("agenda");
+  const [dateChoice, setDateChoice] = useState("2026-11-15");
+  const [extraDates, setExtraDates] = useState<string[]>([]);
+  const [editingAgenda, setEditingAgenda] = useState(false);
+  const [editingTravel, setEditingTravel] = useState<GuestTravelPlan | null>(null);
+  const activeGroupId = groups.some(item => item.id === groupId) ? groupId : groups[0]?.id ?? "";
+  const group = groups.find(item => item.id === activeGroupId);
+  const guests = group ? snapshot.guests.filter(guest => guest.groupId === group.id) : [];
+  const guestCategoryIds = new Set(guests.map(guest => guest.categoryId));
+  const travelPlans = snapshot.travelPlans.filter(plan => plan.categories.some(category => guestCategoryIds.has(category.id)));
+  const availableDates = useMemo(() => [...new Set([...(group?.agenda.map(item => item.date) ?? []), ...travelPlans.map(plan => plan.date), ...extraDates, "2026-11-15", "2026-11-18"])].sort(), [group, travelPlans, extraDates]);
+  const allDays = dateChoice === "all";
+  const selectedDate = !allDays && availableDates.includes(dateChoice) ? dateChoice : availableDates[0] ?? "2026-11-15";
+  const agenda = (group?.agenda ?? []).filter(item => item.date === selectedDate).sort((a, b) => a.time.localeCompare(b.time));
+  const dayTravel = travelPlans.filter(plan => plan.date === selectedDate);
+  const reachable = guests.filter(guest => guest.phone).length;
+  const agendaMessage = group ? buildAgendaPreview(group, selectedDate, agenda) : "";
+  const travelMessage = group ? buildTravelPreview(group, selectedDate, dayTravel) : "";
+
+  function removeAgendaLine(id: string) {
+    if (!group || !window.confirm("Remove this agenda line? It will no longer appear in the group message.")) return;
+    void saveAgenda(group.id, selectedDate, agenda.filter(item => item.id !== id));
+  }
+
+  async function copy(text: string) {
+    await navigator.clipboard.writeText(text);
+  }
+
+  function addTravel() {
+    const categories = snapshot.categories.filter(category => guestCategoryIds.has(category.id));
+    setEditingTravel({ id: crypto.randomUUID(), name: "", event: selectedDate === "2026-11-18" ? "taj" : "malur", date: selectedDate, mode: "Bus", routeName: "", categories, stops: [{ id: crypto.randomUUID(), order: 1, time: "09:00", place: "" }] });
+  }
+
+  const mineHero = <section className="guestHero staysHero"><div><p className="eyebrow">Yours to look after</p><h1>My guest groups</h1><p>Only your assigned groups appear here — their agenda and travel, day by day.</p></div></section>;
+  if (!group) return <>{mineHero}<div className="quietState"><b>No guest group is assigned to you</b><span>A core committee member can make you the primary or secondary coordinator for a group.</span></div></>;
+
   return <>
-    <section className="guestHero mineHero"><div><p className="eyebrow">Your daily guest brief</p><h1>{formatDate(selectedDate)}</h1><p>Only groups assigned to you are shown.</p></div><div className="dateStepper" aria-label="Choose agenda date"><button aria-label="Previous agenda date" disabled={dateIndex === 0} onClick={() => setDateIndex(value => Math.max(0, value - 1))}>‹</button><span><b>{dateIndex + 1}</b><small>of {Math.max(availableDates.length, 1)} days</small></span><button aria-label="Next agenda date" disabled={dateIndex >= availableDates.length - 1} onClick={() => setDateIndex(value => Math.min(availableDates.length - 1, value + 1))}>›</button></div></section>
-    <div className="sectionTitle guestSectionTitle"><div><p className="eyebrow">Primary or secondary coordinator</p><h2>My groups</h2></div><span>{groups.length} groups</span></div>
-    <div className="groupGrid">{groups.map(group => {
-      const agenda = group.agenda.filter(item => item.date === selectedDate).sort((a, b) => a.time.localeCompare(b.time));
-      const guests = snapshot.guests.filter(guest => guest.groupId === group.id);
-      const missing = guests.filter(guest => !guest.phone && !guest.email).length;
-      return <article className="groupCard" key={group.id}><header><div><p>{group.name}</p><span>{guests.length || group.guestCount} guests</span></div>{missing > 0 ? <b className="attentionPill">{missing} need contact</b> : <b className="readyPill">Ready</b>}</header><div className="coordinatorLine"><span>Primary: {group.primaryName || "Not assigned"}</span><span>Secondary: {group.secondaryName || "Not assigned"}</span></div>{agenda.length ? <ol className="agendaList">{agenda.map(item => <li key={item.id}><time>{formatTime(item.time)}</time><span><b>{item.title}</b>{item.details && <small>{item.details}</small>}</span></li>)}</ol> : <div className="quietState"><b>No agenda for this date</b><span>Add an agenda line before sending.</span></div>}<footer><button className="secondaryAction" onClick={() => setEditing(group)}>Edit agenda</button><button className="primaryAction" disabled={!agenda.length || !guests.length} onClick={() => send({ title: group.name, purpose: "agenda", guests, group, date: selectedDate })}>Send to all</button></footer></article>;
-    })}</div>{editing && <AgendaSheet group={editing} date={selectedDate} close={() => setEditing(null)} save={items => { void saveAgenda(editing.id, selectedDate, items); setEditing(null); }} />}
+    {mineHero}
+    <aside className="mineGuidance">Everything <b>{group.name}</b> needs to be told — review each line, then send the agenda and travel separately so nobody receives one long message.</aside>
+    <section className="mineGroupPicker"><p className="eyebrow">Your groups</p><div>{groups.map(item => <button key={item.id} className={item.id === group.id ? "active" : ""} onClick={() => { setGroupId(item.id); setDateChoice("2026-11-15"); }}>{item.name}</button>)}</div></section>
+    <div className="mineSegments" role="tablist" aria-label="Group message type"><button className={segment === "agenda" ? "active" : ""} onClick={() => setSegment("agenda")}>Agenda · {agenda.length}</button><button className={segment === "travel" ? "active" : ""} onClick={() => setSegment("travel")}>Travel · {dayTravel.length}</button></div>
+    <div className="mineGroupPicker mineDayBar"><div role="group" aria-label="Choose a day"><button className={allDays ? "active" : ""} onClick={() => setDateChoice("all")}>All days</button>{availableDates.map(date => <button key={date} className={!allDays && selectedDate === date ? "active" : ""} onClick={() => setDateChoice(date)}>{shortDate(date)}</button>)}<label className="mineAddDate"><span>＋ Add date</span><input type="date" min="2026-01-01" max="2026-12-31" aria-label="Add another day for this group" value="" onChange={event => { const value = event.target.value; if (!value) return; setExtraDates(dates => dates.includes(value) ? dates : [...dates, value]); setDateChoice(value); }} /></label></div></div>
+    <div className="mineDayHeader"><div><h1>{allDays ? "All days" : formatDate(selectedDate)}</h1><span>{allDays ? (segment === "agenda" ? `${(group?.agenda ?? []).length} lines` : `${travelPlans.length} vehicles`) : (segment === "agenda" ? `${agenda.length} lines` : `${dayTravel.length} vehicles`)}</span></div></div>
+    {allDays ? <>
+      {segment === "agenda" ? <>
+        {availableDates.map(date => { const lines = (group?.agenda ?? []).filter(item => item.date === date).sort((a, b) => a.time.localeCompare(b.time)); if (!lines.length) return null; return <section className="mineAllDay" key={date}><header><b>{formatDate(date)}</b><span>{lines.length} {lines.length === 1 ? "line" : "lines"}</span></header><div className="mineLineList">{lines.map(item => <article className="noRemove" key={item.id}><button className="mineLineMain" onClick={() => setDateChoice(date)}><time>{item.time}</time><span><b>{item.title}</b><small>{item.details || "No additional details"}</small></span><i>›</i></button></article>)}</div></section>; })}
+        {!(group?.agenda ?? []).length && <div className="quietState"><b>No agenda for this group yet</b><span>Pick a day and add the first line.</span></div>}
+      </> : <>
+        {availableDates.map(date => { const plans = travelPlans.filter(plan => plan.date === date); if (!plans.length) return null; return <section className="mineAllDay" key={date}><header><b>{formatDate(date)}</b><span>{plans.length} {plans.length === 1 ? "vehicle" : "vehicles"}</span></header><div className="mineTravelList">{plans.map(plan => <button key={plan.id} onClick={() => setDateChoice(date)}><span className="travelMode">{plan.mode}</span><span><b>{plan.name}</b><small>{plan.stops[0] ? `${formatTime(plan.stops[0].time)} · ${plan.stops[0].place}` : plan.routeName}</small></span><i>›</i></button>)}</div></section>; })}
+        {!travelPlans.length && <div className="quietState"><b>No travel for this group yet</b><span>Pick a day and add the first vehicle.</span></div>}
+      </>}
+      <p className="mineAllNote">This is the whole plan for {group.name}. Tap a day to add lines, review the exact message and send it — messages always go one day at a time.</p>
+    </> : segment === "agenda" ? <>
+      <div className="mineLineList">{agenda.map(item => <article key={item.id}><button className="mineLineMain" onClick={() => setEditingAgenda(true)}><time>{item.time}</time><span><b>{item.title}</b><small>{item.details || "No additional details"}</small></span><i>›</i></button><button className="mineRemove" aria-label={`Remove ${item.title}`} onClick={() => removeAgendaLine(item.id)}>×</button></article>)}</div>
+      {!agenda.length && <div className="quietState"><b>No agenda for this date</b><span>Add the first line before sending.</span></div>}
+      <button className="secondaryAction mineAddLine" onClick={() => setEditingAgenda(true)}>＋ Add a line</button>
+      <MessagePreview title="What they will receive" text={agendaMessage} note="The wording is approved centrally. Names, dates and agenda lines are filled from live data." />
+      <div className="mineSendActions"><button className="primaryAction" disabled={!agenda.length || !guests.length} onClick={() => send({ title: group.name, purpose: "agenda", guests, group, date: selectedDate })}>Send agenda to all</button><button className="secondaryAction" disabled={!agenda.length} onClick={() => void copy(agendaMessage)}>Copy the text</button></div>
+    </> : <>
+      <div className="mineTravelList">{dayTravel.map(plan => <button key={plan.id} onClick={() => setEditingTravel(plan)}><span className="travelMode">{plan.mode}</span><span><b>{plan.name}</b><small>{plan.stops[0] ? `${formatTime(plan.stops[0].time)} · ${plan.stops[0].place}` : plan.routeName}</small></span><i>›</i></button>)}</div>
+      {!dayTravel.length && <div className="quietState"><b>No travel for this group on this date</b><span>Add the first vehicle or route when it is confirmed.</span></div>}
+      <button className="secondaryAction mineAddLine" onClick={addTravel}>＋ Add travel for this group</button>
+      <MessagePreview title="What they will receive" text={travelMessage} note="Vehicle, stop, seat and driver variables are filled from live travel data." />
+      <div className="mineSendActions"><button className="primaryAction" disabled={!dayTravel.length || !guests.length} onClick={() => send({ title: `${group.name} travel`, purpose: "travel", guests, event: selectedDate === "2026-11-18" ? "taj" : "malur", travelPlanId: dayTravel[0]?.id })}>Send travel to all</button><button className="secondaryAction" disabled={!dayTravel.length} onClick={() => void copy(travelMessage)}>Copy the text</button></div>
+    </>}
+    <p className="mineReachability">{reachable} of {guests.length || group.guestCount} guests in {group.name} have a WhatsApp number in the Master Sheet.</p>
+    {editingAgenda && <AgendaSheet group={group} date={selectedDate} close={() => setEditingAgenda(false)} save={items => { void saveAgenda(group.id, selectedDate, items); setEditingAgenda(false); }} />}
+    {editingTravel && <TravelSheet plan={editingTravel} categories={snapshot.categories} groups={groupCategoryOptions(snapshot)} close={() => setEditingTravel(null)} save={plan => { void saveTravel(plan); setEditingTravel(null); }} />}
   </>;
+}
+
+function MessagePreview({ title, text, note }: { title: string; text: string; note: string }) {
+  return <section className="messagePreview"><header><b>{title}</b><span>Fixed template</span></header><textarea value={text} readOnly aria-label={title} /><p>{note}</p></section>;
 }
 
 function InvitationsView({ user, preview, snapshot, send, notify }: { user: EventUser; preview: boolean; snapshot: GuestSnapshot; send: (audience: SendAudience) => void; notify: (message: string) => void }) {
@@ -185,19 +257,44 @@ function InvitationsView({ user, preview, snapshot, send, notify }: { user: Even
   const [status, setStatus] = useState("all");
   const [category, setCategory] = useState("all");
   const [templatesOpen, setTemplatesOpen] = useState(false);
-  const invited = snapshot.guests.filter(guest => guest.invitations.some(item => item.event === event && item.invited));
+  const [cardPreview, setCardPreview] = useState(false);
+  const [showing, setShowing] = useState("everyone");
+  const myGroupIds = new Set(snapshot.groups.filter(group => group.primaryPersonId === user.id || group.secondaryPersonId === user.id).map(group => group.id));
+  const lensGroupIds = useMemo(() => showing === "everyone" ? null : new Set(snapshot.groups.filter(group => group.primaryPersonId === showing || group.secondaryPersonId === showing).map(group => group.id)), [showing, snapshot.groups]);
+  const inLens = (guest: GuestRecord) => !lensGroupIds || Boolean(guest.groupId && lensGroupIds.has(guest.groupId));
+  const invited = snapshot.guests.filter(guest => inLens(guest) && guest.invitations.some(item => item.event === event && item.invited));
+  const matchesStatus = (value: string) => status === "all" || (status === "sent" ? value !== "not-invited" : status === "replied" ? value === "accepted" || value === "declined" : value === status);
   const filtered = invited.filter(guest => {
     const invitation = guest.invitations.find(item => item.event === event);
-    return matchesGuest(guest, query) && (status === "all" || invitation?.rsvpStatus === status) && (category === "all" || guest.categoryId === category);
+    return matchesGuest(guest, query) && matchesStatus(invitation?.rsvpStatus ?? "not-invited") && (category === "all" || guest.categoryId === category);
   });
-  const counts = { accepted: invited.filter(guest => guest.invitations.find(item => item.event === event)?.rsvpStatus === "accepted").length, pending: invited.filter(guest => guest.invitations.find(item => item.event === event)?.rsvpStatus === "pending").length, declined: invited.filter(guest => guest.invitations.find(item => item.event === event)?.rsvpStatus === "declined").length };
+  const statusOf = (guest: GuestRecord) => guest.invitations.find(item => item.event === event)?.rsvpStatus ?? "not-invited";
+  const counts = { sent: invited.filter(guest => statusOf(guest) !== "not-invited").length, replied: invited.filter(guest => statusOf(guest) === "accepted" || statusOf(guest) === "declined").length };
+  const sendable = user.isCore ? filtered : filtered.filter(guest => Boolean(guest.groupId && myGroupIds.has(guest.groupId)));
+  const coordinatorOptions = useMemo(() => {
+    const seen = new Map<string, string>();
+    for (const group of snapshot.groups) {
+      if (group.primaryPersonId && group.primaryName) seen.set(group.primaryPersonId, group.primaryName);
+      if (group.secondaryPersonId && group.secondaryName) seen.set(group.secondaryPersonId, group.secondaryName);
+    }
+    return [...seen.entries()].map(([id, name]) => ({ id, name })).sort((a, b) => a.name.localeCompare(b.name));
+  }, [snapshot.groups]);
+  const showingOptions = [{ id: "everyone", name: "Everyone" }, ...coordinatorOptions];
   return <>
+    <section className="guestHero staysHero"><div><p className="eyebrow">One card, one link each</p><h1>Invitations</h1><p>{user.isCore ? "You are on the core committee, so you can send to everyone on this list." : "You send only to the people in your assigned groups."}</p></div></section>
+    <div className="updatesPickers guestLensBar"><FilterPicker label="Showing" value={showing} options={showingOptions} change={setShowing} />{showing !== "everyone" && <button className="updatesClear" onClick={() => setShowing("everyone")}>Back to everyone</button>}</div>
+    <section className="metricGrid guestMetrics statTaps"><button className={status === "all" ? "current" : ""} onClick={() => setStatus("all")}><b>{invited.length}</b><span>invited</span></button><button className={`${invited.length && counts.sent < invited.length ? "attention" : ""} ${status === "sent" ? "current" : ""}`} onClick={() => setStatus("sent")}><b>{counts.sent}</b><span>sent</span></button><button className={status === "replied" ? "current" : ""} onClick={() => setStatus("replied")}><b>{counts.replied}</b><span>replied</span></button></section>
     <EventSwitch event={event} change={setEvent} />
-    {user.isCore && <div className="templateAccessBar"><span><b>Message wording</b><small>English, German and Japanese templates</small></span><button className="secondaryAction" onClick={() => setTemplatesOpen(true)}>Review templates</button></div>}
-    <section className="metricGrid guestMetrics"><article><b>{invited.length}</b><span>invited</span></article><article><b>{counts.accepted}</b><span>attending</span></article><article className={counts.pending ? "attention" : ""}><b>{counts.pending}</b><span>awaiting reply</span></article></section>
-    <section className="guestToolbar"><SearchBox value={query} change={setQuery} placeholder="Search guest or company" /><div className="filterRow"><label><span>Reply</span><select value={status} onChange={e => setStatus(e.target.value)}><option value="all">All replies</option><option value="pending">Awaiting reply</option><option value="accepted">Attending</option><option value="declined">Unable to attend</option></select></label><label><span>Category</span><select value={category} onChange={e => setCategory(e.target.value)}><option value="all">All categories</option>{snapshot.categories.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label></div><button className="primaryAction sendAllAction" disabled={!filtered.length} onClick={() => send({ title: `${event === "malur" ? "Malur" : "Taj"} invitation`, purpose: "invitation", guests: filtered, event })}>Send to all <span>{filtered.length}</span></button></section>
-    <div className="resultSummary"><b>{filtered.length}</b> guests match these filters</div>
+    {event === "taj" ? <button className="inviteCard inviteCardTap" onClick={() => setCardPreview(true)}>
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img src="/invitation-card.jpg" alt="Golden Jubilee invitation card for the Taj West End evening" width={980} height={1470} loading="lazy" decoding="async" />
+      <span>Tap to see what a guest sees</span></button>
+      : <div className="inviteWaiting"><span className="miniMark">YIL <b>50</b></span><div><b>The Malur card is not here yet</b><small>The approved artwork for 15 November will appear here once it is supplied.</small></div></div>}
+    {user.isCore && <div className="templateAccessBar"><span><b>What goes under the card</b><small>English, German and Japanese wording — fixed templates</small></span><button className="secondaryAction" onClick={() => setTemplatesOpen(true)}>Review templates</button></div>}
+    <section className="guestToolbar"><SearchBox value={query} change={setQuery} placeholder="Search guest or company" /><div className="filterRow pickerRow"><FilterPicker label="Reply" value={status} change={setStatus} options={[{ id: "all", name: "All replies" }, { id: "not-invited", name: "Not sent yet" }, { id: "sent", name: "Card sent" }, { id: "pending", name: "Awaiting reply" }, { id: "replied", name: "Replied" }, { id: "accepted", name: "Attending" }, { id: "declined", name: "Unable to attend" }]} /><FilterPicker label="Category" value={category} change={setCategory} options={[{ id: "all", name: "All categories" }, ...snapshot.categories.map(item => ({ id: item.id, name: item.name }))]} /></div><button className="primaryAction sendAllAction" disabled={!sendable.length} onClick={() => send({ title: `${event === "malur" ? "Malur" : "Taj"} invitation`, purpose: "invitation", guests: sendable, event })}>{user.isCore ? "Send to all" : "Send to yours"} <span>{sendable.length}</span></button></section>
+    <div className="resultSummary"><b>{filtered.length}</b> guests match these filters{!user.isCore && <> · <b>{sendable.length}</b> of them are yours to send</>}</div>
     <div className="guestList">{filtered.map(guest => <GuestListRow key={guest.id} guest={guest} event={event} />)}</div>{templatesOpen && <TemplateSheet preview={preview} close={() => setTemplatesOpen(false)} notify={notify} />}
+    {cardPreview && <RsvpPreviewLayer name={invited[0]?.name ?? "guest"} event={event} close={() => setCardPreview(false)} />}
   </>;
 }
 
@@ -209,8 +306,9 @@ function GuestsView({ snapshot, save, archive }: { snapshot: GuestSnapshot; save
   const [selected, setSelected] = useState<GuestRecord | "new" | null>(null);
   const filtered = snapshot.guests.filter(guest => guest.invitations.some(item => item.event === event && item.invited) && matchesGuest(guest, query) && (category === "all" || guest.categoryId === category) && (language === "all" || guest.preferredLanguage === language));
   return <>
+    <section className="guestHero staysHero"><div><p className="eyebrow">Everyone on the list</p><h1>Guest directory</h1><p>Search, open a guest and keep their record right.</p></div></section>
     <EventSwitch event={event} change={setEvent} />
-    <section className="guestToolbar"><SearchBox value={query} change={setQuery} placeholder="Search by name or company" /><div className="filterRow"><label><span>Category</span><select value={category} onChange={e => setCategory(e.target.value)}><option value="all">All categories</option>{snapshot.categories.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label><label><span>Language</span><select value={language} onChange={e => setLanguage(e.target.value)}><option value="all">All languages</option><option value="english">English</option><option value="german">German</option><option value="japanese">Japanese</option></select></label></div><button className="secondaryAction addGuestAction" onClick={() => setSelected("new")}>＋ Add guest</button></section>
+    <section className="guestToolbar"><SearchBox value={query} change={setQuery} placeholder="Search by name or company" /><div className="filterRow pickerRow"><FilterPicker label="Category" value={category} change={setCategory} options={[{ id: "all", name: "All categories" }, ...snapshot.categories.map(item => ({ id: item.id, name: item.name }))]} /><FilterPicker label="Language" value={language} change={setLanguage} options={[{ id: "all", name: "All languages" }, { id: "english", name: "English" }, { id: "german", name: "German" }, { id: "japanese", name: "Japanese" }]} /></div><button className="secondaryAction addGuestAction" onClick={() => setSelected("new")}>＋ Add guest</button></section>
     <div className="resultSummary"><b>{filtered.length}</b> guests · contact details stay inside the guest record</div>
     <div className="guestList">{filtered.map(guest => <button className="guestRow" key={guest.id} onClick={() => setSelected(guest)}><GuestIdentity guest={guest} /><span className="languagePill">{languageName(guest.preferredLanguage)}</span><i>›</i></button>)}</div>
     {selected && <GuestEditSheet guest={selected === "new" ? undefined : selected} event={event} snapshot={snapshot} close={() => setSelected(null)} save={guest => { save(guest); setSelected(null); }} archive={async id => { if (await archive(id)) setSelected(null); }} />}
@@ -222,8 +320,9 @@ function TravelView({ snapshot, save, send }: { snapshot: GuestSnapshot; save: (
   const [query, setQuery] = useState("");
   const [selected, setSelected] = useState<GuestTravelPlan | null>(null);
   const plans = snapshot.travelPlans.filter(plan => plan.event === event && `${plan.name} ${plan.routeName} ${plan.categories.map(item => item.name).join(" ")}`.toLocaleLowerCase("en-IN").includes(query.trim().toLocaleLowerCase("en-IN")));
-  function addPlan() { setSelected({ id: crypto.randomUUID(), name: "", event, date: event === "malur" ? "2026-11-15" : "2026-11-18", mode: "Coach", routeName: "", categories: [], stops: [{ id: crypto.randomUUID(), order: 1, time: "09:00", place: "" }] }); }
+  function addPlan() { setSelected({ id: crypto.randomUUID(), name: "", event, date: event === "malur" ? "2026-11-15" : "2026-11-18", mode: "Bus", routeName: "", categories: [], stops: [{ id: crypto.randomUUID(), order: 1, time: "09:00", place: "" }] }); }
   return <>
+    <section className="guestHero staysHero"><div><p className="eyebrow">Shared routes and vehicles</p><h1>Guest travel</h1><p>Buses and cars for guest groups, with driver and conductor details.</p></div></section>
     <EventSwitch event={event} change={setEvent} />
     <section className="guestToolbar"><SearchBox value={query} change={setQuery} placeholder="Search route or category" /><div className="plainRule"><b>Category-based travel</b><span>Every guest in a selected category receives this route. Individual guest exceptions are not used.</span></div><button className="secondaryAction addGuestAction" onClick={addPlan}>＋ Add travel plan</button></section>
     <div className="sectionTitle guestSectionTitle"><div><p className="eyebrow">Shared routes and vehicles</p><h2>Travel plans</h2></div><span>{plans.length} plans</span></div>
@@ -231,26 +330,49 @@ function TravelView({ snapshot, save, send }: { snapshot: GuestSnapshot; save: (
       const missing = [!plan.vehicleNumber && "vehicle", !plan.driverName && "driver", !plan.driverPhone && "driver phone"].filter(Boolean) as string[];
       const categoryIds = new Set(plan.categories.map(category => category.id));
       const guests = snapshot.guests.filter(guest => categoryIds.has(guest.categoryId) && guest.invitations.some(invitation => invitation.event === plan.event && invitation.invited));
-      return <article className="travelCard" key={plan.id}><header><span className="travelMode">{plan.mode}</span><div><b>{plan.name}</b><small>{formatDate(plan.date)}</small></div></header><p>{plan.routeName}</p><div className="categoryPills">{plan.categories.map(category => <span key={category.id}>{category.name}</span>)}</div><ol>{plan.stops.slice(0, 3).map(stop => <li key={stop.id}><time>{formatTime(stop.time)}</time><span>{stop.place}</span></li>)}</ol>{missing.length ? <div className="inlineWarning">Add {missing.join(", ")}</div> : <div className="inlineReady">Vehicle and driver ready</div>}<footer><button className="secondaryAction" onClick={() => setSelected(plan)}>Edit route</button><button className="primaryAction" disabled={Boolean(missing.length) || !guests.length} onClick={() => send({ title: plan.name, purpose: "travel", guests, event: plan.event, travelPlanId: plan.id })}>Send to all <span>{guests.length}</span></button></footer></article>;
+      return <article className="travelCard" key={plan.id}><header><span className="travelMode">{plan.mode}</span><div><b>{plan.name}</b><small>{formatDate(plan.date)}</small></div></header><p>{plan.routeName}</p><div className="categoryPills">{plan.categories.map(category => <span key={category.id}>{category.name}</span>)}</div><ol className="routeLine">{plan.stops.map(stop => <li key={stop.id}><time>{formatTime(stop.time)}</time><span>{stop.place}</span></li>)}</ol>{missing.length ? <div className="inlineWarning">Add {missing.join(", ")}</div> : <div className="inlineReady">Vehicle and driver ready</div>}<footer><button className="secondaryAction" onClick={() => setSelected(plan)}>Edit route</button><button className="primaryAction" disabled={Boolean(missing.length) || !guests.length} onClick={() => send({ title: plan.name, purpose: "travel", guests, event: plan.event, travelPlanId: plan.id })}>Send to all <span>{guests.length}</span></button></footer></article>;
     })}</div>{!plans.length && <div className="quietState"><b>No travel plans for this event</b><span>Add the first category route when movement details are known.</span></div>}
-    {selected && <TravelSheet plan={selected} categories={snapshot.categories} close={() => setSelected(null)} save={plan => { void save(plan); setSelected(null); }} />}
+    {selected && <TravelSheet plan={selected} categories={snapshot.categories} groups={groupCategoryOptions(snapshot)} close={() => setSelected(null)} save={plan => { void save(plan); setSelected(null); }} />}
   </>;
 }
 
 function StaysView({ snapshot, save, send }: { snapshot: GuestSnapshot; save: (guestId: string, hotelId: string, room: string) => void; send: (audience: SendAudience) => void }) {
   const [query, setQuery] = useState("");
-  const [show, setShow] = useState<"all" | "missing">("all");
   const [selected, setSelected] = useState<GuestRecord | null>(null);
-  const filtered = snapshot.guests.filter(guest => matchesGuest(guest, query) && (show === "all" || !guest.stay?.hotelId || !guest.stay.roomNumber));
-  const missing = snapshot.guests.filter(guest => !guest.stay?.hotelId || !guest.stay.roomNumber).length;
-  const ready = filtered.filter(guest => guest.stay?.hotelId && guest.stay.roomNumber);
+  const hasStay = (guest: GuestRecord) => Boolean(guest.stay?.hotelId && guest.stay.roomNumber);
+  const term = query.trim();
+  const LIMIT = 30;
+  const scope = term ? snapshot.guests.filter(guest => matchesGuest(guest, query)) : [];
+  const shown = scope.slice(0, LIMIT);
+  const ready = snapshot.guests.filter(hasStay);
   return <>
-    <section className="guestHero staysHero"><div><p className="eyebrow">Assign by guest name</p><h1>Hotels and rooms</h1><p>Search, select the right guest, choose a hotel and enter the room.</p></div><span className={missing ? "heroAttention" : "heroReady"}><b>{missing}</b> need details</span></section>
-    <section className="guestToolbar staysSearch"><SearchBox value={query} change={setQuery} placeholder="Type a guest name" /><div className="choiceRow" role="group" aria-label="Stay assignment status"><button className={show === "all" ? "active" : ""} onClick={() => setShow("all")}>All guests</button><button className={show === "missing" ? "active" : ""} onClick={() => setShow("missing")}>Needs assignment <b>{missing}</b></button></div><button className="primaryAction sendAllAction" disabled={!ready.length} onClick={() => send({ title: "Hotel and room details", purpose: "stay", guests: ready })}>Send stay details <span>{ready.length}</span></button></section>
-    <div className="resultSummary"><b>{filtered.length}</b> matching guests</div>
-    <div className="guestList stayList">{filtered.map(guest => <button className="guestRow" key={guest.id} onClick={() => setSelected(guest)}><GuestIdentity guest={guest} /><span className={guest.stay?.hotelId && guest.stay.roomNumber ? "stayAssigned" : "stayMissing"}>{guest.stay?.hotelId ? `${guest.stay.hotelName}${guest.stay.roomNumber ? ` · ${guest.stay.roomNumber}` : " · Room needed"}` : "Assign hotel"}</span><i>›</i></button>)}</div>
+    <section className="guestHero staysHero"><div><p className="eyebrow">Assign by guest name</p><h1>Hotels and rooms</h1><p>Type the guest&rsquo;s name, choose the hotel and enter the room. That is all.</p></div></section>
+    <section className="guestToolbar staysSearch"><SearchBox value={query} change={setQuery} placeholder="Type a guest name" /><button className="primaryAction sendAllAction" disabled={!ready.length} onClick={() => send({ title: "Hotel and room details", purpose: "stay", guests: ready })}>Send stay details</button></section>
+    {!term && <><div className="quietState"><b>Type a name to assign a hotel and room</b><span>Guests with both hotel and room saved are included when stay details are sent.</span></div>
+    <p className="hotelNamesLine">Hotels this year: {snapshot.hotels.map(hotel => hotel.name).join(" · ")}</p></>}
+    {term && <>
+      <div className="resultSummary">{scope.length > LIMIT ? `Showing the first ${LIMIT} — keep typing to narrow` : scope.length ? "Tap the right guest" : "No guest matches that name"}</div>
+      <div className="guestList stayList">{shown.map(guest => <button className="guestRow" key={guest.id} onClick={() => setSelected(guest)}><GuestIdentity guest={guest} /><span className={hasStay(guest) ? "stayAssigned" : "stayMissing"}>{guest.stay?.hotelId ? `${guest.stay.hotelName}${guest.stay.roomNumber ? ` · ${guest.stay.roomNumber}` : " · Room needed"}` : "Assign hotel"}</span><i>›</i></button>)}</div>
+    </>}
     {selected && <StaySheet guest={selected} hotels={snapshot.hotels} close={() => setSelected(null)} save={(hotelId, room) => { save(selected.id, hotelId, room); setSelected(null); }} />}
   </>;
+}
+function RsvpPreviewLayer({ name, event, close }: { name: string; event: GuestEvent; close: () => void }) {
+  useSheetHistory(close);
+  return <div className="sheetLayer rsvpPreviewLayer" role="presentation"><button className="sheetShade" aria-label="Close preview" onClick={close} /><section className="rsvpCard rsvpPreviewCard" role="dialog" aria-modal="true" aria-label="What a guest sees"><span className="rsvpPreviewTag">Preview — nothing is sent</span><span className="miniMark">YIL <b>50</b></span><p className="eyebrow">Golden Jubilee invitation</p><h1>Hello, {name}.</h1><p>Please confirm whether you will attend <b>{event === "malur" ? "YIL Malur" : "Taj West End"}</b> on <b>{event === "malur" ? "15 November 2026" : "18 November 2026"}</b>.</p><div className="rsvpActions"><button disabled>Yes, I’ll attend</button><button disabled>Unable to attend</button></div><button className="secondaryAction rsvpPreviewClose" onClick={close}>Close preview</button></section></div>;
+}
+
+function groupCategoryOptions(snapshot: GuestSnapshot) {
+  return snapshot.groups.map(group => ({ id: group.id, name: group.name, categoryIds: [...new Set(snapshot.guests.filter(guest => guest.groupId === group.id).map(guest => guest.categoryId))] }));
+}
+
+function FilterPicker({ label, value, options, change }: { label: string; value: string; options: { id: string; name: string }[]; change: (id: string) => void }) {
+  const [open, setOpen] = useState(false);
+  const current = options.find(option => option.id === value)?.name ?? options[0]?.name ?? "";
+  return <details className="pickerChip" open={open} onToggle={event => setOpen(event.currentTarget.open)}>
+    <summary aria-label={`${label}: ${current}`}><span>{label}</span><b>{current}</b><i>▾</i></summary>
+    <div className="pickerPanel pickerPeople">{options.map(option => <button type="button" key={option.id} className={option.id === value ? "active" : ""} onClick={() => { change(option.id); setOpen(false); }}>{option.name}</button>)}</div>
+  </details>;
 }
 
 function EventSwitch({ event, change }: { event: GuestEvent; change: (event: GuestEvent) => void }) {
@@ -388,17 +510,31 @@ function StaySheet({ guest, hotels, close, save }: { guest: GuestRecord; hotels:
   return <Sheet title="Assign hotel and room" subtitle={guest.name} close={close}><div className="selectedGuest"><GuestIdentity guest={guest} /><span>{guest.groupName || "No guest group"}</span></div><form className="recordForm" onSubmit={submit}><label><span>Hotel</span><select name="hotelId" defaultValue={guest.stay?.hotelId ?? ""} required><option value="" disabled>Choose hotel</option>{hotels.map(hotel => <option key={hotel.id} value={hotel.id}>{hotel.name}</option>)}</select></label><label><span>Room number</span><input name="roomNumber" defaultValue={guest.stay?.roomNumber} inputMode="text" placeholder="Enter room number" required /></label><button className="primaryAction">Save hotel and room</button></form></Sheet>;
 }
 
-function TravelSheet({ plan, categories, close, save }: { plan: GuestTravelPlan; categories: GuestSnapshot["categories"]; close: () => void; save: (plan: GuestTravelPlan) => void }) {
+function TravelSheet({ plan, categories, groups, close, save }: { plan: GuestTravelPlan; categories: GuestSnapshot["categories"]; groups: { id: string; name: string; categoryIds: string[] }[]; close: () => void; save: (plan: GuestTravelPlan) => void }) {
   const [name, setName] = useState(plan.name), [mode, setMode] = useState(plan.mode), [date, setDate] = useState(plan.date), [routeName, setRouteName] = useState(plan.routeName);
   const [vehicleNumber, setVehicleNumber] = useState(plan.vehicleNumber ?? ""), [driverName, setDriverName] = useState(plan.driverName ?? ""), [driverPhone, setDriverPhone] = useState(plan.driverPhone ?? "");
+  const [conductorName, setConductorName] = useState(plan.conductorName ?? ""), [conductorPhone, setConductorPhone] = useState(plan.conductorPhone ?? "");
+  const [groupChoice, setGroupChoice] = useState("");
   const [categoryIds, setCategoryIds] = useState(() => new Set(plan.categories.map(category => category.id)));
-  const [stops, setStops] = useState(plan.stops);
+  const [stops, setStops] = useState(plan.stops.length >= 2 ? plan.stops : [...plan.stops, ...Array.from({ length: 2 - plan.stops.length }, (_, index) => ({ id: crypto.randomUUID(), order: plan.stops.length + index + 1, time: "09:00", place: "" }))]);
+  function applyStopCount(raw: number) {
+    const count = Math.max(2, Math.min(12, Math.round(raw) || 2));
+    setStops(value => {
+      const next = [...value];
+      while (next.length < count) next.splice(next.length - 1, 0, { id: crypto.randomUUID(), order: next.length, time: "09:00", place: "" });
+      while (next.length > count) next.splice(next.length - 2, 1);
+      return next.map((stop, index) => ({ ...stop, order: index + 1 }));
+    });
+  }
+  function setPlaceAt(position: "first" | "last", place: string) {
+    setStops(value => value.map((stop, index) => (position === "first" ? index === 0 : index === value.length - 1) ? { ...stop, place } : stop));
+  }
   function toggleCategory(id: string) { setCategoryIds(value => { const next = new Set(value); if (next.has(id)) next.delete(id); else next.add(id); return next; }); }
   function submit(event: FormEvent) {
     event.preventDefault();
-    save({ ...plan, name: name.trim(), date, mode: mode.trim(), routeName: routeName.trim(), vehicleNumber: vehicleNumber.trim() || undefined, driverName: driverName.trim() || undefined, driverPhone: driverPhone.trim() || undefined, categories: categories.filter(category => categoryIds.has(category.id)), stops: stops.map((stop, index) => ({ ...stop, order: index + 1 })) });
+    save({ ...plan, name: name.trim(), date, mode: mode.trim(), routeName: routeName.trim(), vehicleNumber: vehicleNumber.trim() || undefined, driverName: driverName.trim() || undefined, driverPhone: driverPhone.trim() || undefined, conductorName: mode === "Car" ? undefined : conductorName.trim() || undefined, conductorPhone: mode === "Car" ? undefined : conductorPhone.trim() || undefined, categories: categories.filter(category => categoryIds.has(category.id)), stops: stops.map((stop, index) => ({ ...stop, order: index + 1 })) });
   }
-  return <Sheet title={plan.name ? "Edit travel plan" : "Add travel plan"} subtitle={plan.name || (plan.event === "malur" ? "YIL Malur" : "Taj West End")} close={close}><form className="recordForm travelForm" onSubmit={submit}><label><span>Plan name</span><input value={name} onChange={event => setName(event.target.value)} placeholder="Example: Japan coach to Malur" required /></label><div className="formPair"><label><span>Travel date</span><input type="date" value={date} onChange={event => setDate(event.target.value)} required /></label><label><span>Travel mode</span><input value={mode} onChange={event => setMode(event.target.value)} placeholder="Coach, car…" required /></label></div><label><span>Route name</span><input value={routeName} onChange={event => setRouteName(event.target.value)} required /></label><div className="formPair"><label><span>Vehicle number</span><input value={vehicleNumber} onChange={event => setVehicleNumber(event.target.value)} placeholder="Add when confirmed" /></label><label><span>Driver name</span><input value={driverName} onChange={event => setDriverName(event.target.value)} placeholder="Add when confirmed" /></label></div><label><span>Driver phone</span><input type="tel" value={driverPhone} onChange={event => setDriverPhone(event.target.value)} inputMode="tel" autoComplete="tel" placeholder="Add when confirmed" /></label><fieldset className="categoryChecks"><legend>Guest categories using this travel plan</legend>{categories.map(category => <label key={category.id}><input type="checkbox" checked={categoryIds.has(category.id)} onChange={() => toggleCategory(category.id)} /><span>{category.name}</span></label>)}</fieldset><div className="stopEditor"><div className="sectionTitle guestSectionTitle compact"><div><p className="eyebrow">In travel order</p><h2>Stops</h2></div></div>{stops.map((stop, index) => <div className="stopEditRow" key={stop.id}><span className="stopNumber">{index + 1}</span><label><span>Time</span><input type="time" value={stop.time} onChange={event => setStops(value => value.map(row => row.id === stop.id ? { ...row, time: event.target.value } : row))} required /></label><label><span>Place</span><input value={stop.place} onChange={event => setStops(value => value.map(row => row.id === stop.id ? { ...row, place: event.target.value } : row))} required /></label><button type="button" aria-label={`Remove stop ${index + 1}`} onClick={() => setStops(value => value.filter(row => row.id !== stop.id))}>×</button></div>)}<button type="button" className="secondaryAction addLineAction" onClick={() => setStops(value => [...value, { id: crypto.randomUUID(), order: value.length + 1, time: "09:00", place: "" }])}>＋ Add stop</button></div><button className="primaryAction" disabled={!name.trim() || !categoryIds.size || !stops.length || stops.some(stop => !stop.time || !stop.place.trim())}>Save travel plan</button></form></Sheet>;
+  return <Sheet title={plan.name ? "Edit travel plan" : "Add travel plan"} subtitle={plan.name || (plan.event === "malur" ? "YIL Malur" : "Taj West End")} close={close}><form className="recordForm travelForm" onSubmit={submit}><label><span>Plan name</span><input value={name} onChange={event => setName(event.target.value)} placeholder="Example: Japan coach to Malur" required /></label><div className="formPair"><label><span>Travel date</span><input type="date" value={date} onChange={event => setDate(event.target.value)} required /></label><div className="modeChoice"><span>Bus or car?</span><div className="choiceRow" role="group" aria-label="Travel mode">{["Bus", "Car", ...(mode && !["Bus", "Car"].includes(mode) ? [mode] : [])].map(option => <button type="button" key={option} className={mode === option ? "active" : ""} onClick={() => setMode(option)}>{option}</button>)}</div></div></div>{mode !== "Car" && <><div className="formPair"><label><span>How many stops?</span><input type="number" min={2} max={12} value={stops.length} onChange={event => applyStopCount(Number(event.target.value))} /></label><label><span>Start point</span><input value={stops[0]?.place ?? ""} onChange={event => setPlaceAt("first", event.target.value)} placeholder="Where the bus starts" required /></label></div><label><span>End point</span><input value={stops[stops.length - 1]?.place ?? ""} onChange={event => setPlaceAt("last", event.target.value)} placeholder="Where the bus ends" required /></label></>}<label><span>Route name</span><input value={routeName} onChange={event => setRouteName(event.target.value)} required /></label><div className="formPair"><label><span>Vehicle number</span><input value={vehicleNumber} onChange={event => setVehicleNumber(event.target.value)} placeholder="Add when confirmed" /></label><label><span>Driver name</span><input value={driverName} onChange={event => setDriverName(event.target.value)} placeholder="Add when confirmed" /></label></div><label><span>Driver phone</span><input type="tel" value={driverPhone} onChange={event => setDriverPhone(event.target.value)} inputMode="tel" autoComplete="tel" placeholder="Add when confirmed" /></label>{mode !== "Car" && <div className="formPair"><label><span>Conductor name</span><input value={conductorName} onChange={event => setConductorName(event.target.value)} placeholder="Add when confirmed" /></label><label><span>Conductor phone</span><input type="tel" value={conductorPhone} onChange={event => setConductorPhone(event.target.value)} inputMode="tel" placeholder="Add when confirmed" /></label></div>}<label><span>Guest group for this plan</span><select value={groupChoice} onChange={event => { const value = event.target.value; setGroupChoice(value); const found = groups.find(group => group.id === value); if (found) setCategoryIds(new Set(found.categoryIds)); }}><option value="">Choose a group to fill the categories</option>{groups.map(group => <option key={group.id} value={group.id}>{group.name}</option>)}</select></label><fieldset className="categoryChecks"><legend>Guest categories using this travel plan</legend>{categories.map(category => <label key={category.id}><input type="checkbox" checked={categoryIds.has(category.id)} onChange={() => toggleCategory(category.id)} /><span>{category.name}</span></label>)}</fieldset><div className="stopEditor"><div className="sectionTitle guestSectionTitle compact"><div><p className="eyebrow">In travel order</p><h2>Stops</h2></div></div>{stops.map((stop, index) => <div className="stopEditRow" key={stop.id}><span className={`stopNumber ${index === 0 ? "start" : index === stops.length - 1 ? "end" : ""}`}>{index === 0 ? "S" : index === stops.length - 1 ? "E" : index + 1}</span><label><span>Time</span><input type="time" value={stop.time} onChange={event => setStops(value => value.map(row => row.id === stop.id ? { ...row, time: event.target.value } : row))} required /></label><label><span>Place</span><input value={stop.place} onChange={event => setStops(value => value.map(row => row.id === stop.id ? { ...row, place: event.target.value } : row))} required /></label>{(mode === "Car" || (index > 0 && index < stops.length - 1)) ? <button type="button" aria-label={`Remove stop ${index + 1}`} onClick={() => { setStops(value => value.filter(row => row.id !== stop.id).map((row, rowIndex) => ({ ...row, order: rowIndex + 1 }))); }}>×</button> : <span className="stopLock" aria-hidden="true" />}</div>)}{mode === "Car" && <button type="button" className="secondaryAction addLineAction" onClick={() => setStops(value => [...value, { id: crypto.randomUUID(), order: value.length + 1, time: "09:00", place: "" }])}>＋ Add stop</button>}</div><button className="primaryAction" disabled={!name.trim() || !categoryIds.size || !stops.length || stops.some(stop => !stop.time || !stop.place.trim())}>Save travel plan</button></form></Sheet>;
 }
 
 function AgendaSheet({ group, date, close, save }: { group: GuestGroup; date: string; close: () => void; save: (items: GuestAgendaItem[]) => void }) {
@@ -428,7 +564,8 @@ function TemplateSheet({ preview, close, notify }: { preview: boolean; close: ()
 }
 
 function Sheet({ title, subtitle, close, children }: { title: string; subtitle?: string; close: () => void; children: React.ReactNode }) {
-  return <div className="sheetLayer" role="presentation"><button className="sheetShade" aria-label="Close" onClick={close} /><section className="jobSheet guestSheet" role="dialog" aria-modal="true" aria-labelledby="guest-sheet-title"><header><div><p className="eyebrow">{subtitle}</p><h2 id="guest-sheet-title">{title}</h2></div><button aria-label="Close" onClick={close}>×</button></header><div className="sheetBody">{children}</div></section></div>;
+  useSheetHistory(close);
+  return <div className="sheetLayer" role="presentation"><button className="sheetShade" aria-label="Close" onClick={close} /><section className="jobSheet guestSheet" role="dialog" aria-modal="true" aria-labelledby="guest-sheet-title"><header><button className="sheetBack" onClick={close}>‹ Back</button><div><p className="eyebrow">{subtitle}</p><h2 id="guest-sheet-title">{title}</h2></div><button aria-label="Close" onClick={close}>×</button></header><div className="sheetBody">{children}</div></section></div>;
 }
 
 function matchesGuest(guest: GuestRecord, query: string) {
@@ -437,6 +574,19 @@ function matchesGuest(guest: GuestRecord, query: string) {
 }
 
 function formatDate(date: string) { return new Date(`${date}T12:00:00`).toLocaleDateString("en-IN", { weekday: "short", day: "numeric", month: "long" }); }
+function shortDate(date: string) { return new Date(`${date}T12:00:00`).toLocaleDateString("en-IN", { day: "numeric", month: "short" }); }
 function formatTime(time: string) { const [hour, minute] = time.split(":").map(Number); return new Date(2000, 0, 1, hour, minute).toLocaleTimeString("en-IN", { hour: "numeric", minute: "2-digit" }); }
+function buildAgendaPreview(group: GuestGroup, date: string, items: GuestAgendaItem[]) {
+  const lines = items.map(item => `${item.time}  ${item.title}${item.details ? ` — ${item.details}` : ""}`).join("\n");
+  return `Yuken India Limited — Golden Jubilee\n\n${group.name}\nYour programme · ${formatDate(date)}\n\n${lines || "Programme details will be shared shortly."}\n\nPlease contact your YIL coordinator if you need any help.`;
+}
+function buildTravelPreview(group: GuestGroup, date: string, plans: GuestTravelPlan[]) {
+  const lines = plans.map((plan, planIndex) => {
+    const stops = plan.stops.map(stop => `  ${stop.time}  ${stop.place}`).join("\n");
+    const driver = (plan.driverName ? `\n  Driver: ${plan.driverName}${plan.driverPhone ? ` · ${plan.driverPhone}` : ""}` : "") + (plan.conductorName ? `\n  Conductor: ${plan.conductorName}${plan.conductorPhone ? ` · ${plan.conductorPhone}` : ""}` : "");
+    return `${planIndex + 1}. ${plan.name} · ${plan.mode}\n${stops}${driver}`;
+  }).join("\n\n");
+  return `Yuken India Limited — Golden Jubilee\n\n${group.name}\nTravel for ${formatDate(date)}\n\n${lines || "Travel details will be shared shortly."}`;
+}
 function languageName(language: string) { return ({ english: "English", german: "German", japanese: "Japanese" } as Record<string, string>)[language] ?? language; }
-function rsvpLabel(status: string) { return ({ "not-invited": "Not invited", pending: "Awaiting reply", accepted: "Attending", declined: "Unable to attend" } as Record<string, string>)[status] ?? status; }
+function rsvpLabel(status: string) { return ({ "not-invited": "Not sent yet", pending: "Awaiting reply", accepted: "Attending", declined: "Unable to attend" } as Record<string, string>)[status] ?? status; }
