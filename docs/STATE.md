@@ -79,6 +79,8 @@ Updated: 2026-08-21
 - Provider-backed message delivery is implemented behind an explicit Send confirmation and bounded batches. Recipient contacts and rendered variables are frozen at preflight, each send is atomically claimed, RSVP links are created only at invitation send time, only token hashes are stored, test sends are server-allowlisted, and ambiguous provider responses are retained as `delivery-unknown` without blind retry.
 - Release-candidate verification after the delivery implementation completed the production build and passed 28 of 28 automated tests. ESLint, standalone TypeScript, `git diff --check`, and the production dependency audit all passed; the audit found 0 known vulnerabilities across 6 production dependencies.
 - The first delivery-version publish was stopped before release because Cloudflare D1 rejected SQLite's non-constant `ALTER TABLE` default. The replacement table-rebuild migration then executed 100% of six migration stages against a seeded legacy recipient and preserved 10 of 10 checked values plus all three expected indexes.
+- Private Sites version 11 deployed the corrected delivery release with environment revision 4. Live D1 read-back exposed all 13 expected `message_recipients` columns after migration.
+- The first allowlisted live email acceptance completed core login, delivery configuration, Guest snapshot, fixed-template approval, dummy Guest creation, preflight, provider send, post-send snapshot and state assertions. Exactly 1 message was provider-accepted with a provider ID; the batch completed with 0 failed and 0 delivery-unknown. Inbox arrival, rendering and RSVP click remain separate human acceptance checks.
 
 ## Not complete
 
