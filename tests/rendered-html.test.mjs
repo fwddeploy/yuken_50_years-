@@ -1,0 +1,68 @@
+import assert from "node:assert/strict";
+import { readFile, readdir } from "node:fs/promises";
+import path from "node:path";
+import test from "node:test";
+
+async function render(pathname = "/") {
+  const workerUrl = new URL("../dist/server/index.js", import.meta.url);
+  workerUrl.searchParams.set("test", `${process.pid}-${Date.now()}`);
+  const { default: worker } = await import(workerUrl.href);
+  return worker.fetch(new Request(`http://localhost${pathname}`, { headers: { accept: "text/html" } }), { ASSETS: { fetch: async () => new Response("Not found", { status: 404 }) } }, { waitUntil() {}, passThroughOnException() {} });
+}
+
+test("server renders the product-specific employee sign-in", async () => {
+  const response = await render();
+  assert.equal(response.status, 200);
+  assert.match(response.headers.get("content-type") ?? "", /^text\/html\b/i);
+  const html = await response.text();
+  assert.match(html, /<title>YIL Golden Jubilee — Event Operations<\/title>/i);
+  for (const copy of ["Five decades of friendly and intelligent service", "Employee number", "Employee PIN", "Sign in"]) assert.match(html, new RegExp(copy, "i"));
+  assert.doesNotMatch(html, /codex-preview|SkeletonPreview|Your site is taking shape/);
+  assert.doesNotMatch(html, /Open local Event Work preview/);
+});
+
+test("offline route is explicit that operational data is not cached as current", async () => {
+  const response = await render("/offline");
+  assert.equal(response.status, 200);
+  const html = await response.text();
+  assert.match(html, /You are offline/);
+  assert.match(html, /does not show stale operational data as if it were live/);
+});
+
+test("source contains Event Work, Guest coordination and production boundaries", async () => {
+  const [component, guestComponent, schema, contract, guestContract, serviceWorker, packageJson] = await Promise.all([
+    readFile(new URL("../app/EventOperationsApp.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/GuestCoordinationApp.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../db/schema.ts", import.meta.url), "utf8"),
+    readFile(new URL("../src/domain/master-contract.ts", import.meta.url), "utf8"),
+    readFile(new URL("../src/domain/guest-contract.ts", import.meta.url), "utf8"),
+    readFile(new URL("../public/sw.js", import.meta.url), "utf8"),
+    readFile(new URL("../package.json", import.meta.url), "utf8"),
+  ]);
+  for (const tab of ["Home", "Updates", "Malur", "Taj", "Budget"]) assert.match(component, new RegExp(`label: "${tab}"`));
+  for (const tab of ["Mine", "Invites", "Guests", "Travel", "Stays"]) assert.match(guestComponent, new RegExp(`label: "${tab}"`));
+  for (const table of ["people", "sections", "jobs", "job_assignments", "job_states", "job_updates", "budget_entries", "sessions", "sync_batches", "audit_events", "guest_categories", "guest_groups", "guests", "guest_event_invitations", "group_agenda_items", "travel_plans", "travel_plan_categories", "travel_stops", "hotels", "guest_stays", "message_templates", "message_batches", "message_recipients"]) assert.match(schema, new RegExp(`sqliteTable\\("${table}"`));
+  for (const sheet of ["1 People", "2 Sections", "3 Jobs"]) assert.match(contract, new RegExp(sheet));
+  for (const sheet of ["4 Guest Categories", "5 Guest Groups", "6 Guests", "7 Group Agenda", "8 Travel Plans", "9 Travel Stops", "10 Hotels"]) assert.match(guestContract, new RegExp(sheet));
+  for (const copy of ["Preferred language", "Send to all", "Review templates", "Type a guest name"]) assert.match(guestComponent, new RegExp(copy, "i"));
+  assert.match(serviceWorker, /pathname\.startsWith\("\/api\/"\)/);
+  assert.doesNotMatch(packageJson, /react-loading-skeleton|exceljs/);
+});
+
+test("no workbook or environment-secret file is present in the repository", async () => {
+  const root = path.resolve(new URL("..", import.meta.url).pathname.replace(/^\/(.:)/u, "$1"));
+  const names = await walk(root, root);
+  assert.deepEqual(names.filter(name => /\.(xlsx|xlsm|xls)$/iu.test(name)), []);
+  assert.deepEqual(names.filter(name => /(^|\/)\.env(\.|$)/u.test(name) && !name.endsWith(".env.example")), []);
+});
+
+async function walk(directory, root) {
+  const result = [];
+  for (const entry of await readdir(directory, { withFileTypes: true })) {
+    if (["node_modules", ".git", ".next", ".vinext", "dist", ".wrangler", ".scratch"].includes(entry.name)) continue;
+    const full = path.join(directory, entry.name);
+    if (entry.isDirectory()) result.push(...await walk(full, root));
+    else result.push(path.relative(root, full).replaceAll("\\", "/"));
+  }
+  return result;
+}
