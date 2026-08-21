@@ -1,6 +1,8 @@
 import type { MasterPayload } from "../domain/master-contract";
 import { getRuntimeEnv } from "./runtime-env";
 
+const GOOGLE_SHEETS_REQUEST_TIMEOUT_MS = 30_000;
+
 export type SheetEntityType = "guest" | "group_agenda" | "travel_plan";
 export type SheetOperation = "upsert" | "archive" | "replace_scope";
 
@@ -110,7 +112,7 @@ export async function baselineGoogleSheetsMaster() {
 
 async function postToGoogle(url: string, body: unknown): Promise<{ ok?: boolean; error?: string; master?: unknown; results?: { id: string; ok: boolean; error?: string }[] }> {
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 8_000);
+  const timeout = setTimeout(() => controller.abort(), GOOGLE_SHEETS_REQUEST_TIMEOUT_MS);
   try {
     const response = await fetch(url, {
       method: "POST",

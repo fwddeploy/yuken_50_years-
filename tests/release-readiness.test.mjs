@@ -31,6 +31,7 @@ test("Google Sheets connector has durable outbox, pull preview and exact-version
   assert.match(schema, /sqliteTable\("sheet_sync_outbox"/);
   assert.match(connector, /next_attempt_at/);
   assert.match(connector, /redirect: "follow"/);
+  assert.match(connector, /GOOGLE_SHEETS_REQUEST_TIMEOUT_MS = 30_000/);
   assert.match(route, /previewMasterPayload/);
   assert.match(route, /constantTimeEqual/);
   assert.match(appsScript, /LockService\.getScriptLock/);
