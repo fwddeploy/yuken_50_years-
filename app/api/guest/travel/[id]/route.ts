@@ -21,30 +21,33 @@ export async function PUT(request: Request, context: { params: Promise<{ id: str
   if (routeName.length > 180 || mode.length > 60 || (vehicleNumber?.length ?? 0) > 60 || (driverName?.length ?? 0) > 120 || (driverPhone?.length ?? 0) > 30 || stops.some(stop => stop.place.length > 200)) return Response.json({ error: "One or more travel fields are too long." }, { status: 400 });
 
   const db = getDb();
-  const [[plan], categories, beforeCategories, beforeStops] = await Promise.all([
+  const [[plan], categories, beforeCategories, beforeStops, submittedStops] = await Promise.all([
     db.select().from(travelPlans).where(and(eq(travelPlans.id, id), eq(travelPlans.active, true))).limit(1),
     db.select({ id: guestCategories.id }).from(guestCategories).where(and(inArray(guestCategories.id, categoryIds), eq(guestCategories.active, true))),
     db.select().from(travelPlanCategories).where(eq(travelPlanCategories.travelPlanId, id)),
     db.select().from(travelStops).where(and(eq(travelStops.travelPlanId, id), eq(travelStops.active, true))),
+    db.select({ id: travelStops.id, travelPlanId: travelStops.travelPlanId }).from(travelStops).where(inArray(travelStops.id, stops.map(stop => stop.id))),
   ]);
   if (!plan) return Response.json({ error: "Travel plan was not found." }, { status: 404 });
   if (categories.length !== categoryIds.length) return Response.json({ error: "One or more selected categories are no longer available." }, { status: 409 });
+  if (submittedStops.some(stop => stop.travelPlanId !== id)) return Response.json({ error: "One or more travel stops belong to another plan. Refresh and try again." }, { status: 409 });
   const sameDayPlans = await db.select({ planId: travelPlans.id, categoryId: travelPlanCategories.categoryId }).from(travelPlanCategories).innerJoin(travelPlans, eq(travelPlans.id, travelPlanCategories.travelPlanId)).where(and(eq(travelPlans.event, event), eq(travelPlans.travelDate, date), eq(travelPlans.active, true), inArray(travelPlanCategories.categoryId, categoryIds)));
   if (sameDayPlans.some(row => row.planId !== id)) return Response.json({ error: "A selected category already has another travel plan for this event and date." }, { status: 409 });
 
   const now = new Date().toISOString();
   const database = getRuntimeEnv().DB;
   const statements: D1PreparedStatement[] = [
-    database.prepare("UPDATE travel_plans SET event=?, travel_date=?, mode=?, route_name=?, vehicle_number=?, driver_name=?, driver_phone=?, source_updated_at='app', updated_at=? WHERE id=?").bind(event, date, mode, routeName, vehicleNumber, driverName, driverPhone, now, id),
+    database.prepare("UPDATE travel_plans SET event=?, travel_date=?, mode=?, route_name=?, vehicle_number=?, driver_name=?, driver_phone=?, updated_at=? WHERE id=?").bind(event, date, mode, routeName, vehicleNumber, driverName, driverPhone, now, id),
     database.prepare("DELETE FROM travel_plan_categories WHERE travel_plan_id=?").bind(id),
-    database.prepare("UPDATE travel_stops SET active=0, source_updated_at='app', updated_at=? WHERE travel_plan_id=? AND active=1").bind(now, id),
+    database.prepare("UPDATE travel_stops SET active=0, updated_at=? WHERE travel_plan_id=? AND active=1").bind(now, id),
   ];
   for (const categoryId of categoryIds) statements.push(database.prepare("INSERT INTO travel_plan_categories (travel_plan_id, category_id) VALUES (?, ?)").bind(id, categoryId));
   for (const stop of stops) statements.push(database.prepare(`
     INSERT INTO travel_stops (id, travel_plan_id, stop_order, stop_time, place, active, source_updated_at, created_at, updated_at)
     VALUES (?, ?, ?, ?, ?, 1, 'app', ?, ?)
     ON CONFLICT(id) DO UPDATE SET travel_plan_id=excluded.travel_plan_id, stop_order=excluded.stop_order, stop_time=excluded.stop_time,
-      place=excluded.place, active=1, source_updated_at='app', updated_at=excluded.updated_at
+      place=excluded.place, active=1, updated_at=excluded.updated_at
+      WHERE travel_stops.travel_plan_id=excluded.travel_plan_id
   `).bind(stop.id, id, stop.order, stop.time, stop.place, now, now));
   statements.push(database.prepare("INSERT INTO audit_events (id, actor_id, action, entity_type, entity_id, before_json, after_json, created_at) VALUES (?, ?, 'guest.travel-updated', 'travel_plan', ?, ?, ?, ?)").bind(crypto.randomUUID(), user.personId, id, JSON.stringify({ plan, categories: beforeCategories, stops: beforeStops }), JSON.stringify({ event, date, mode, routeName, vehicleNumber, driverName, driverPhone, categoryIds, stops }), now));
   await database.batch(statements);

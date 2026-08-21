@@ -16,7 +16,7 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
     const now = new Date().toISOString();
     const selectedEvents = new Set(input.events);
     const writes = [
-      db.update(guests).set({ name: input.name, company: input.company, categoryId: input.categoryId, groupId: input.groupId, country: input.country, preferredLanguage: input.preferredLanguage, phone: input.phone, email: input.email, sourceUpdatedAt: "app", updatedAt: now }).where(eq(guests.id, id)),
+      db.update(guests).set({ name: input.name, company: input.company, categoryId: input.categoryId, groupId: input.groupId, country: input.country, preferredLanguage: input.preferredLanguage, phone: input.phone, email: input.email, updatedAt: now }).where(eq(guests.id, id)),
       ...(["malur", "taj"] as const).map(event => db.insert(guestEventInvitations).values({ id: crypto.randomUUID(), guestId: id, event, invited: selectedEvents.has(event), rsvpStatus: selectedEvents.has(event) ? "not-invited" : "not-invited", createdAt: now, updatedAt: now }).onConflictDoUpdate({ target: [guestEventInvitations.guestId, guestEventInvitations.event], set: { invited: selectedEvents.has(event), rsvpStatus: selectedEvents.has(event) ? undefined : "not-invited", respondedAt: selectedEvents.has(event) ? undefined : null, updatedAt: now } })),
       db.insert(auditEvents).values({ id: crypto.randomUUID(), actorId: user.personId, action: "guest.updated", entityType: "guest", entityId: id, beforeJson: JSON.stringify({ ...before, phone: Boolean(before.phone), email: Boolean(before.email) }), afterJson: JSON.stringify({ ...input, phone: Boolean(input.phone), email: Boolean(input.email) }), createdAt: now }),
     ];

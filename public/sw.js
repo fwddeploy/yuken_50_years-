@@ -1,5 +1,5 @@
-const CACHE = "yil-event-shell-v1";
-const SHELL = ["/offline", "/manifest.webmanifest", "/favicon.svg"];
+const CACHE = "yil-event-shell-v2";
+const SHELL = ["/offline", "/manifest.webmanifest", "/favicon.svg", "/icon-192.png", "/icon-512.png"];
 
 self.addEventListener("install", event => {
   event.waitUntil(caches.open(CACHE).then(cache => cache.addAll(SHELL)));
@@ -21,7 +21,7 @@ self.addEventListener("fetch", event => {
     event.respondWith(fetch(request).catch(() => caches.match("/offline")));
     return;
   }
-  if (url.pathname.startsWith("/_next/static/") || url.pathname === "/favicon.svg") {
+  if (url.pathname.startsWith("/_next/static/") || ["/favicon.svg", "/icon-192.png", "/icon-512.png"].includes(url.pathname)) {
     event.respondWith(caches.match(request).then(cached => cached || fetch(request).then(response => { const copy = response.clone(); caches.open(CACHE).then(cache => cache.put(request, copy)); return response; })));
   }
 });

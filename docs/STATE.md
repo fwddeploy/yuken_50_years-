@@ -19,10 +19,14 @@ Updated: 2026-08-21
 - Core-committee template review/approval, recipient-specific message preflight and actionable `Not sent` reasons.
 - Guest add/edit/archive endpoints, coordinator-owned agenda editing, category travel editing and name-search hotel/room assignment.
 - Public event-specific RSVP route with only `Yes, I’ll attend` and `Unable to attend` responses.
+- Version-bound Master impact preview and explicit confirmation before any import can apply.
+- Master/app provenance is preserved when editing existing guests, agenda lines, travel plans and travel stops; app-created guest rows remain protected from Master replacement.
+- Unified 11-sheet test Master generated outside Git with dynamic row handling and explicit missing-data warnings.
+- Parent-bound agenda-line and travel-stop mutations prevent client-supplied child IDs from moving records across guest groups or travel plans.
 
 ## Evidence so far
 
-- Real Master workbook structural check: 22 of 22 People, 13 of 13 Sections and 140 of 140 source Jobs were accepted. `Both` expansion produced 202 operational jobs; 0 validation issues or unresolved references.
+- Supplied test workbook structural check: 22 of 22 People, 13 of 13 Sections and 140 of 140 source Jobs were accepted. `Both` expansion produced 202 operational jobs; 0 validation issues or unresolved references. These figures are test evidence, not product limits.
 - Automated build and test run: 10 of 10 passed, 0 failed.
 - TypeScript compile and ESLint: both passed with 0 errors.
 - Browser interaction checks: 5 of 5 Event Work tabs opened; the tested activity save changed Home progress and appeared in Updates.
@@ -35,16 +39,26 @@ Updated: 2026-08-21
 - At 320px, visible controls below 44px were 0 in each of the 5 Guest tabs.
 - Browser workflows reproduced: guest language selection/save, filtered invitation audience count, agenda-line save, category-travel save, guest-name hotel/room save, 6 invitation template variants and a send preflight with 1 ready and 1 not-sent recipient.
 - Browser console after the completed Guest phone workflow: 0 errors and 0 warnings.
+- Unified test Master verification: 11 sheets, 1,845 of 1,845 supplied test guest rows, 0 schema issues and 0 formula-error matches. Warnings were explicit for 130 missing finish-by dates, 74 missing emails, 252 missing mobile numbers and empty agenda/travel input.
+- Synthetic local D1 system workflow: 10 of 10 HTTP checks passed across Master add, login, Event reflection, progress save, Guest reflection, app add/edit, removal impact preview, Master replacement and app archive.
+- Latest isolated historical-preservation readback after archive: active jobs 0, active guests 0; 4 invitation rows, 1 stay row, 2 job-state rows, 1 job update, 9 audit rows and 2 applied sync batches remained.
+- Unified test Master local import: preview completed in 910 ms; one atomic apply completed in 3,759 ms and read back 22 active people, 13 sections, 202 operational jobs, 1,845 guests and 3,690 invitation rows.
+- Local 40-client realistic-fixture run: login 40 of 40 succeeded (p95 10,845 ms), Event snapshot 40 of 40 succeeded (p95 5,627 ms) and Guest snapshot 40 of 40 succeeded (p95 10,214 ms). This is single-process local evidence, not production D1 capacity evidence.
+- Single local snapshot size: Event 71,692 raw bytes / 8,866 gzip bytes; Guest 1,067,498 raw bytes / 123,330 gzip bytes.
+- Latest release verification: production build passed, ESLint passed, 16 of 16 automated tests passed and the production dependency audit found 0 vulnerabilities across 6 production dependencies.
+- Security scan of 74 repository files reported 2 launch risks in the approved PIN model: one high shared-bootstrap-PIN risk and one medium account-enumeration/lockout risk. The owner-only preview contains both during private testing; public launch does not.
+- Security diff review covered 10 of 10 changed runtime files and reproduced 1 medium cross-group agenda-ID authorization defect. Before the fix, the crafted request returned 200 and moved the other group's item; after the fix it returned 409, while a legitimate same-group update and a new line both returned 200. The sibling travel-stop test produced the same 409/200 protected/legitimate result.
 
 ## Not complete
 
-- Production database/account provisioning and secret configuration.
+- Importing any supplied test rows into the remote private D1 database; local D1 system testing is complete.
 - Writing permanent hidden record IDs back to the human Master Sheet.
 - Google Sheets Apps Script/service-account connection.
-- A fully atomic Master import across every D1 chunk; the present import is validated first and idempotent/retryable, but large writes are split into batches.
-- The real Guest source workbook has not yet been converted into the new seven-sheet Guest Master contract; real-data Guest acceptance is unproven.
+- Real-data acceptance remains unproven by definition; every supplied workbook is treated only as a test fixture and the real production dataset has not been imported.
 - External WhatsApp and email provider selection, credentials and delivery worker. The current product stops at an honest preflight and does not claim to send.
 - RSVP token creation is reserved for the future provider-backed send operation; RSVP storage and response handling exist.
 - Core committee review and approval of final English, German and Japanese wording.
 - Production load testing against the provisioned D1 account.
 - Public/custom-domain deployment, load testing and pilot acceptance. An owner-only phone-review preview is authorised separately.
+- Two-way Google Sheets write-back or a generated Excel export for app-created/edited rows. Today app writes are immediately authoritative in D1 and auditable, but they do not rewrite a local `.xlsx` file.
+- Public employee login approval. The shared first-time PIN must be replaced with unique claim codes or all claims completed behind a private access gate; login throttling also needs an edge policy and uniform failure responses.

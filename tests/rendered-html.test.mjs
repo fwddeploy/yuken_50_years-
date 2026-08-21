@@ -17,6 +17,7 @@ test("server renders the product-specific employee sign-in", async () => {
   const html = await response.text();
   assert.match(html, /<title>YIL Golden Jubilee — Event Operations<\/title>/i);
   for (const copy of ["Five decades of friendly and intelligent service", "Employee number", "Employee PIN", "Sign in"]) assert.match(html, new RegExp(copy, "i"));
+  assert.match(html, /golden-jubilee-cover\.jpg/i);
   assert.doesNotMatch(html, /codex-preview|SkeletonPreview|Your site is taking shape/);
   assert.doesNotMatch(html, /Open local Event Work preview/);
 });
@@ -30,12 +31,16 @@ test("offline route is explicit that operational data is not cached as current",
 });
 
 test("source contains Event Work, Guest coordination and production boundaries", async () => {
-  const [component, guestComponent, schema, contract, guestContract, serviceWorker, packageJson] = await Promise.all([
+  const [component, guestComponent, schema, contract, guestContract, importRoute, importService, agendaRoute, travelRoute, serviceWorker, packageJson] = await Promise.all([
     readFile(new URL("../app/EventOperationsApp.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/GuestCoordinationApp.tsx", import.meta.url), "utf8"),
     readFile(new URL("../db/schema.ts", import.meta.url), "utf8"),
     readFile(new URL("../src/domain/master-contract.ts", import.meta.url), "utf8"),
     readFile(new URL("../src/domain/guest-contract.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/api/master/import/route.ts", import.meta.url), "utf8"),
+    readFile(new URL("../src/server/import-master.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/api/guest/groups/[id]/agenda/route.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/api/guest/travel/[id]/route.ts", import.meta.url), "utf8"),
     readFile(new URL("../public/sw.js", import.meta.url), "utf8"),
     readFile(new URL("../package.json", import.meta.url), "utf8"),
   ]);
@@ -46,6 +51,15 @@ test("source contains Event Work, Guest coordination and production boundaries",
   for (const sheet of ["4 Guest Categories", "5 Guest Groups", "6 Guests", "7 Group Agenda", "8 Travel Plans", "9 Travel Stops", "10 Hotels"]) assert.match(guestContract, new RegExp(sheet));
   for (const copy of ["Preferred language", "Send to all", "Review templates", "Type a guest name"]) assert.match(guestComponent, new RegExp(copy, "i"));
   assert.match(serviceWorker, /pathname\.startsWith\("\/api\/"\)/);
+  assert.match(serviceWorker, /icon-192\.png/);
+  assert.match(importRoute, /Confirmation required/);
+  assert.match(importRoute, /mode.*preview/);
+  assert.match(importService, /preservedHistory/);
+  assert.match(importService, /appManagedProtected/);
+  assert.match(agendaRoute, /agenda lines belong to another guest group/i);
+  assert.match(agendaRoute, /WHERE group_agenda_items\.group_id=excluded\.group_id/);
+  assert.match(travelRoute, /travel stops belong to another plan/i);
+  assert.match(travelRoute, /WHERE travel_stops\.travel_plan_id=excluded\.travel_plan_id/);
   assert.doesNotMatch(packageJson, /react-loading-skeleton|exceljs/);
 });
 

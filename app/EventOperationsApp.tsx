@@ -1,6 +1,7 @@
 "use client";
 
 import { FormEvent, useEffect, useState } from "react";
+import Image from "next/image";
 import { canEditJob } from "../src/domain/master-contract";
 import { EventJob, EventUser, previewBudget, previewJobs, previewProgramme, previewSections, previewUser } from "../src/demo/event-preview";
 import GuestCoordinationApp from "./GuestCoordinationApp";
@@ -122,7 +123,28 @@ export default function EventOperationsApp() {
 }
 
 function LoginScreen({ submit, error, busy, preview }: { submit: (event: FormEvent<HTMLFormElement>) => void; error: string; busy: boolean; preview?: () => void }) {
-  return <main className="loginShell"><section className="anniversaryPanel" aria-label="Yuken India Golden Jubilee"><div className="anniversaryMark" aria-hidden="true"><span className="brandWord">YUKEN</span><strong>50</strong><span className="years">1976—2026</span></div><div className="anniversaryCopy"><p>Yuken India Limited</p><h1>Five decades of friendly and intelligent service</h1><span>Golden Jubilee · Internal event operations</span></div></section><section className="loginPanel"><div className="loginIntro"><h2>Welcome back</h2><p>Enter your employee number and PIN.</p></div><form className="loginForm" onSubmit={submit}><label><span>Employee number</span><input name="employeeNumber" inputMode="numeric" autoComplete="username" placeholder="Enter employee number" required /></label><label><span>Employee PIN</span><input name="pin" type="password" inputMode="numeric" autoComplete="current-password" placeholder="Enter PIN" minLength={4} required /></label><div className="loginAssist"><span>Your PIN is private to you.</span><button type="button">Forgot PIN?</button></div><button className="primaryAction" type="submit" disabled={busy}>{busy ? "Signing in…" : "Sign in"}</button>{preview && <button className="previewAction" type="button" onClick={preview}>Open local Event Work preview</button>}<p className="formStatus errorText" role="alert">{error}</p></form></section></main>;
+  const [pinVisible, setPinVisible] = useState(false);
+  const [help, setHelp] = useState("");
+
+  return <main className="loginPage">
+    <section className="loginShell" aria-label="Yuken India Golden Jubilee event team sign in">
+      <div className="loginArtwork">
+        <Image src="/golden-jubilee-cover.jpg" alt="Yuken India Limited — 50 years, five decades of friendly and intelligent service" fill priority sizes="(max-width: 480px) 100vw, 410px" />
+      </div>
+      <div className="loginPanel">
+        <p className="loginInstruction">Enter your YIL employee number and PIN.</p>
+        <form className="authLoginForm" onSubmit={submit}>
+          <label htmlFor="employeeNumber"><span>Employee number</span></label>
+          <input id="employeeNumber" name="employeeNumber" type="text" inputMode="numeric" pattern="[0-9]*" enterKeyHint="next" autoComplete="username" autoCapitalize="none" spellCheck={false} placeholder="Enter employee number" maxLength={6} required />
+          <div className="pinLabelRow"><label htmlFor="employeePin"><span>Employee PIN</span></label><button type="button" onClick={() => setHelp("Ask a core committee member to reset your PIN.")}>Forgot PIN?</button></div>
+          <div className="pinField"><input id="employeePin" name="pin" type={pinVisible ? "text" : "password"} inputMode="numeric" pattern="[0-9]*" enterKeyHint="go" autoComplete="current-password" placeholder="Enter PIN" minLength={4} maxLength={6} required /><button type="button" aria-label={pinVisible ? "Hide PIN" : "Show PIN"} onClick={() => setPinVisible(value => !value)}>{pinVisible ? "Hide" : "Show"}</button></div>
+          <p className={`formStatus ${error ? "errorText" : ""}`} role={error ? "alert" : "status"} aria-live="polite">{error || help}</p>
+          <button className="primaryAction" type="submit" disabled={busy}>{busy ? "Signing in…" : "Sign in"}</button>
+          {preview && <button className="previewAction" type="button" onClick={preview}>Open local Event Work preview</button>}
+        </form>
+      </div>
+    </section>
+  </main>;
 }
 
 function PinScreen({ user, submit, error }: { user: EventUser; submit: (event: FormEvent<HTMLFormElement>) => void; error: string }) {

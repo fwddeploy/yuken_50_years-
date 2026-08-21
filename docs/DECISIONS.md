@@ -8,6 +8,7 @@
 - Only core committee members can assign or reassign work and access Budget in the application.
 - The frontend is not an authorisation boundary. Every protected read and write is checked by the server.
 - Guest contact data and real workbook rows do not belong in the public repository.
+- Every workbook supplied during development is a test fixture only. Row counts, names, category totals and missing-field patterns must never drive product decisions, UI structure or capacity limits.
 - Guest operational RSVP, message attempts/results, live activity and audit history stay in the database rather than the workbook.
 - Each guest has one explicit preferred language: English, German or Japanese. Language is never inferred from nationality or origin.
 - Guest messages use centrally approved, fixed templates selected automatically by message purpose, channel and guest language. Coordinators do not edit message wording.
@@ -15,5 +16,6 @@
 - Hotel and room are assigned to an individual guest by name. More than one guest may share a room number.
 - A group has one primary and one secondary coordinator. Both can manage and message that group.
 - An owner-only preview deployment is authorised for phone review. Public access, a custom domain and provider credentials remain separate approvals.
+- A Master replacement must be previewed and explicitly confirmed before it can apply. The preview identifies active workflows that will be archived and operational history that will be retained.
 
 Cloudflare Sites, Workers and D1 are the hosting path. DigitalOcean is not introduced without measured need; the domain and import contracts remain independent of the UI.

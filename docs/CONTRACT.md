@@ -30,8 +30,10 @@ This build covers the internal coordinator journey from employee sign-in into Ev
 
 ## Side effects
 
-- Master sync validates the complete payload before applying it. Invalid references return `Needs fixing` and write nothing.
+- Master sync validates the complete payload and produces an impact preview before applying it. Invalid references return `Needs fixing` and write nothing; a valid payload still requires confirmation for that exact Master version and current sync base.
 - Valid imports are idempotent by permanent record ID and archive missing records instead of deleting history.
+- App-created guest rows are identified independently from Master-managed rows and survive a Master replacement. Editing a Master-managed row does not silently convert it into an app-created row.
+- Existing agenda-line IDs are bound to their guest group and existing travel-stop IDs are bound to their travel plan; a child ID can never be used to reparent another workflow's record.
 - Job writes require a current authenticated session and server-side assignment check.
 - Reassignment and Budget writes require core-committee status on the server.
 - Each state-changing operation records an audit event.
@@ -65,3 +67,4 @@ This build covers the internal coordinator journey from employee sign-in into Ev
 - Category travel updates affect guests in the category and never an individual guest override.
 - Stay search distinguishes duplicate names and saves hotel/room against the selected guest.
 - A message preflight reports the total audience, ready recipients and every skipped recipient with an actionable reason.
+- A Master removal preview reports affected People, Sections, Event activities, Guest categories, Guest groups, Guests, Agenda lines, Travel plans, Travel stops and Hotels, plus preserved job progress, invitation, stay and message history.

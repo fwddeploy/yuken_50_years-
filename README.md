@@ -12,7 +12,11 @@ Internal, installable web application for coordinating Yuken India Limited's Gol
 - Persistent event state and audit schema for Cloudflare D1
 - PWA manifest, safe offline state and user-controlled update refresh
 
-Guest coordination and external messaging are intentionally held until their separate UI and provider contracts are approved.
+- Guest Coordination with Mine, Invitations, Guests, Travel and Stays
+- Explicit English, German and Japanese message-template preflight
+- Impact-previewed, confirmation-bound unified Master import
+
+Provider-backed WhatsApp/email delivery is intentionally not claimed until credentials, approved wording and delivery workers are connected.
 
 ## Local development
 
@@ -33,7 +37,7 @@ Copy the variable names from `.env.example` into the deployment's protected secr
 
 ## Master Sheet boundary
 
-The application consumes a validated JSON representation of `1 People`, `2 Sections` and `3 Jobs`. The supplied Excel remains outside the repository. Google Sheets will call the same protected import contract when the live sync is connected.
+The application consumes a validated JSON representation of the unified People, Sections, Jobs, Guest Categories, Guest Groups, Guests, Group Agenda, Travel Plans, Travel Stops and Hotels sheets. Every supplied workbook is treated as test data and remains outside the repository. A preview/confirmation handshake is required before applying an import. Google Sheets will call the same contract when live two-way sync is connected.
 
 See `docs/CONTRACT.md`, `docs/DECISIONS.md` and `docs/STATE.md` before changing data ownership or permissions.
 
