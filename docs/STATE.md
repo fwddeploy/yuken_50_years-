@@ -70,6 +70,7 @@ Updated: 2026-08-21
 - Private production staged load completed 1,000 of 1,000 HTTP operations with 0 failures: 250 logins, 500 authenticated Event/Guest snapshot reads and 250 logouts across 10/25/40/75/100-session stages. At 100 sessions, login p95 was 4,399 ms, the two snapshot-wave p95s were 7,154 ms and 7,015 ms, and logout p95 was 4,435 ms. This is capacity evidence for the current test fixture, not real-data accuracy evidence; the measured snapshot latency remains an optimisation target.
 - Release-readiness build completed and all 25 of 25 automated tests passed; ESLint and `git diff --check` passed with 0 errors.
 - A blind independent baseline audit reproduced 0 of 1 Google connectors, 0 of 1 update prompts with byte-identical service workers and no safe tracked production load harness. The subsequent implementation directly addresses all three reproduced gaps; live Google delivery remains unproven until real connector credentials are supplied.
+- Private Sites release 6 installed the byte-distinct `yil-event-shell-aea173091a4c` worker over the previous fixed `v2` worker. The browser displayed 1 of 1 update prompts; selecting Refresh update produced 1 of 1 controlled reloads, removed the old cache and left 0 waiting workers.
 
 ## Not complete
 
