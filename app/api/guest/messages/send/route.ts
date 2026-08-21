@@ -1,6 +1,6 @@
 import { and, eq, inArray, sql } from "drizzle-orm";
 import { getDb } from "../../../../../db";
-import { auditEvents, guestEventInvitations, messageBatches, messageRecipients, messageTemplates } from "../../../../../db/schema";
+import { auditEvents, guestEventInvitations, guestInvitationRsvpTokens, messageBatches, messageRecipients, messageTemplates } from "../../../../../db/schema";
 import { renderTemplate, type GuestLanguage } from "../../../../../src/domain/guest-contract";
 import { createPublicToken, hashPublicToken } from "../../../../../src/security/crypto";
 import { deliverEmail, deliveryConfiguration, deliverWhatsApp } from "../../../../../src/server/message-delivery";
@@ -68,7 +68,7 @@ export async function POST(request: Request) {
     }
 
     const variables = Object.fromEntries(Object.entries(payload.variables ?? {}).map(([key, value]) => [key, value == null ? "" : String(value)]));
-    let invitation: { id: string; tokenHash: string } | null = null;
+    let invitation: { id: string; tokenId: string } | null = null;
     if (batch.purpose === "invitation") {
       if (!batch.event) { await failRecipient(recipient.id, "The invitation event is missing."); continue; }
       const [record] = await db.select({ id: guestEventInvitations.id, invited: guestEventInvitations.invited })
@@ -78,9 +78,10 @@ export async function POST(request: Request) {
       if (!record?.invited) { await failRecipient(recipient.id, "This guest is no longer invited to the selected event."); continue; }
       const token = createPublicToken();
       const tokenHash = await hashPublicToken(token);
+      const tokenId = crypto.randomUUID();
       variables.rsvp_link = new URL(`/rsvp/${encodeURIComponent(token)}`, request.url).toString();
-      invitation = { id: record.id, tokenHash };
-      await db.update(guestEventInvitations).set({ rsvpTokenHash: tokenHash, rsvpStatus: "pending", respondedAt: null, updatedAt: new Date().toISOString() }).where(eq(guestEventInvitations.id, record.id));
+      invitation = { id: record.id, tokenId };
+      await db.insert(guestInvitationRsvpTokens).values({ id: tokenId, invitationId: record.id, tokenHash, messageRecipientId: recipient.id, createdAt: new Date().toISOString() });
     }
 
     const renderedSubject = template.subject ? renderTemplate(template.subject, variables) : "";
@@ -106,25 +107,27 @@ export async function POST(request: Request) {
     if (delivery.ok) {
       await db.batch([
         db.update(messageRecipients).set({ status: "accepted", providerMessageId: delivery.providerMessageId, sentAt: finishedAt, updatedAt: finishedAt }).where(eq(messageRecipients.id, recipient.id)),
+        ...(invitation ? [db.update(guestEventInvitations).set({ rsvpStatus: sql`CASE WHEN ${guestEventInvitations.rsvpStatus} = 'not-invited' THEN 'pending' ELSE ${guestEventInvitations.rsvpStatus} END`, updatedAt: finishedAt }).where(eq(guestEventInvitations.id, invitation.id))] : []),
         db.insert(auditEvents).values({ id: crypto.randomUUID(), actorId: user.personId, action: "guest.message-provider-accepted", entityType: "message_recipient", entityId: recipient.id, afterJson: JSON.stringify({ batchId, channel: batch.channel, purpose: batch.purpose }), createdAt: finishedAt }),
       ]);
     } else {
       await db.batch([
         db.update(messageRecipients).set({ status: delivery.status, lastError: delivery.error, updatedAt: finishedAt }).where(eq(messageRecipients.id, recipient.id)),
         db.insert(auditEvents).values({ id: crypto.randomUUID(), actorId: user.personId, action: `guest.message-${delivery.status}`, entityType: "message_recipient", entityId: recipient.id, afterJson: JSON.stringify({ batchId, channel: batch.channel, purpose: batch.purpose, error: delivery.error.slice(0, 160) }), createdAt: finishedAt }),
-        ...(delivery.status === "failed" && invitation ? [db.update(guestEventInvitations).set({ rsvpTokenHash: null, rsvpStatus: "not-invited", updatedAt: finishedAt }).where(and(eq(guestEventInvitations.id, invitation.id), eq(guestEventInvitations.rsvpTokenHash, invitation.tokenHash)))] : []),
+        ...(delivery.status === "failed" && invitation ? [db.delete(guestInvitationRsvpTokens).where(eq(guestInvitationRsvpTokens.id, invitation.tokenId))] : []),
+        ...(delivery.status === "delivery-unknown" && invitation ? [db.update(guestEventInvitations).set({ rsvpStatus: sql`CASE WHEN ${guestEventInvitations.rsvpStatus} = 'not-invited' THEN 'pending' ELSE ${guestEventInvitations.rsvpStatus} END`, updatedAt: finishedAt }).where(eq(guestEventInvitations.id, invitation.id))] : []),
       ]);
     }
   }
   return batchSummary(batchId, processed);
 }
 
-async function failRecipient(id: string, error: string, invitation?: { id: string; tokenHash: string } | null) {
+async function failRecipient(id: string, error: string, invitation?: { id: string; tokenId: string } | null) {
   const db = getDb();
   const now = new Date().toISOString();
   await db.batch([
     db.update(messageRecipients).set({ status: "failed", lastError: error, updatedAt: now }).where(eq(messageRecipients.id, id)),
-    ...(invitation ? [db.update(guestEventInvitations).set({ rsvpTokenHash: null, rsvpStatus: "not-invited", updatedAt: now }).where(and(eq(guestEventInvitations.id, invitation.id), eq(guestEventInvitations.rsvpTokenHash, invitation.tokenHash)))] : []),
+    ...(invitation ? [db.delete(guestInvitationRsvpTokens).where(eq(guestInvitationRsvpTokens.id, invitation.tokenId))] : []),
   ]);
 }
 

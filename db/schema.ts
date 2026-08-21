@@ -222,6 +222,18 @@ export const guestEventInvitations = sqliteTable("guest_event_invitations", {
   index("idx_guest_event_status").on(table.event, table.rsvpStatus),
 ]);
 
+export const guestInvitationRsvpTokens = sqliteTable("guest_invitation_rsvp_tokens", {
+  id: text("id").primaryKey(),
+  invitationId: text("invitation_id").notNull().references(() => guestEventInvitations.id, { onDelete: "cascade" }),
+  tokenHash: text("token_hash").notNull(),
+  messageRecipientId: text("message_recipient_id"),
+  revokedAt: text("revoked_at"),
+  createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+}, table => [
+  uniqueIndex("uidx_guest_invitation_rsvp_token_hash").on(table.tokenHash),
+  index("idx_guest_invitation_rsvp_tokens_invitation").on(table.invitationId, table.revokedAt),
+]);
+
 export const groupAgendaItems = sqliteTable("group_agenda_items", {
   id: text("id").primaryKey(),
   groupId: text("group_id").notNull().references(() => guestGroups.id, { onDelete: "cascade" }),

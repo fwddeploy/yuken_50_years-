@@ -1,15 +1,22 @@
-import { and, eq } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 import { getDb } from "../../db";
-import { auditEvents, guestEventInvitations, guests } from "../../db/schema";
+import { auditEvents, guestEventInvitations, guestInvitationRsvpTokens, guests } from "../../db/schema";
 import { GUEST_EVENT_DETAILS } from "../domain/guest-contract";
 import { hashPublicToken } from "../security/crypto";
 
 export async function findRsvp(token: string) {
   if (token.length < 32 || token.length > 100) return null;
   const tokenHash = await hashPublicToken(token);
-  const [record] = await getDb().select({ invitationId: guestEventInvitations.id, guestId: guests.id, guestName: guests.name, event: guestEventInvitations.event, status: guestEventInvitations.rsvpStatus })
+  const db = getDb();
+  const [current] = await db.select({ invitationId: guestEventInvitations.id, guestId: guests.id, guestName: guests.name, event: guestEventInvitations.event, status: guestEventInvitations.rsvpStatus })
+    .from(guestInvitationRsvpTokens)
+    .innerJoin(guestEventInvitations, eq(guestEventInvitations.id, guestInvitationRsvpTokens.invitationId))
+    .innerJoin(guests, eq(guests.id, guestEventInvitations.guestId))
+    .where(and(eq(guestInvitationRsvpTokens.tokenHash, tokenHash), isNull(guestInvitationRsvpTokens.revokedAt), eq(guestEventInvitations.invited, true), eq(guests.active, true))).limit(1);
+  const [legacy] = current ? [] : await db.select({ invitationId: guestEventInvitations.id, guestId: guests.id, guestName: guests.name, event: guestEventInvitations.event, status: guestEventInvitations.rsvpStatus })
     .from(guestEventInvitations).innerJoin(guests, eq(guests.id, guestEventInvitations.guestId))
     .where(and(eq(guestEventInvitations.rsvpTokenHash, tokenHash), eq(guestEventInvitations.invited, true), eq(guests.active, true))).limit(1);
+  const record = current ?? legacy;
   if (!record) return null;
   return { ...record, eventName: GUEST_EVENT_DETAILS[record.event].name, eventDate: GUEST_EVENT_DETAILS[record.event].date };
 }

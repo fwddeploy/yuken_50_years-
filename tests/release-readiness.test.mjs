@@ -51,3 +51,19 @@ test("message delivery migration preserves existing D1 recipients with a SQLite-
   assert.match(migration, /CREATE UNIQUE INDEX `uidx_message_recipient_batch_guest`/);
   assert.doesNotMatch(migration, /ADD `updated_at` text DEFAULT CURRENT_TIMESTAMP/u);
 });
+
+test("WhatsApp and email invitations keep independent RSVP links for one guest event", async () => {
+  const [schema, sendRoute, rsvp, migration] = await Promise.all([
+    readFile(new URL("../db/schema.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/api/guest/messages/send/route.ts", import.meta.url), "utf8"),
+    readFile(new URL("../src/server/rsvp.ts", import.meta.url), "utf8"),
+    readFile(new URL("../drizzle/0005_big_monster_badoon.sql", import.meta.url), "utf8"),
+  ]);
+  assert.match(schema, /sqliteTable\("guest_invitation_rsvp_tokens"/);
+  assert.match(migration, /CREATE UNIQUE INDEX `uidx_guest_invitation_rsvp_token_hash`/);
+  assert.match(sendRoute, /insert\(guestInvitationRsvpTokens\)/);
+  assert.match(sendRoute, /delivery\.status === "failed".*delete\(guestInvitationRsvpTokens\)/s);
+  assert.doesNotMatch(sendRoute, /set\(\{ rsvpTokenHash: tokenHash/u);
+  assert.match(rsvp, /from\(guestInvitationRsvpTokens\)/);
+  assert.match(rsvp, /const record = current \?\? legacy/);
+});
