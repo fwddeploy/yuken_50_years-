@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { parseGuestLanguage, preflightMessages, validateGuestMaster } from "../src/domain/guest-contract.ts";
+import { normalizeMasterTime, parseGuestLanguage, preflightMessages, validateGuestMaster } from "../src/domain/guest-contract.ts";
 import { DEFAULT_MESSAGE_TEMPLATES } from "../src/domain/default-message-templates.ts";
 
 const validGuestMaster = {
@@ -23,6 +23,16 @@ test("connected Guest Master references validate as one workbook contract", () =
   assert.deepEqual(validateGuestMaster(validGuestMaster, new Set(["AA", "BB"])), []);
   const issues = validateGuestMaster({ ...validGuestMaster, guests: [{ ...validGuestMaster.guests[0], preferredLanguage: "Japan", categoryName: "Missing" }] }, new Set(["AA", "BB"]));
   assert.deepEqual(issues.map(issue => issue.field).sort(), ["categoryName", "preferredLanguage"]);
+});
+
+test("Google Sheets times without a leading zero are accepted and normalised", () => {
+  assert.equal(normalizeMasterTime("8:00"), "08:00");
+  assert.equal(normalizeMasterTime("9:30"), "09:30");
+  assert.equal(normalizeMasterTime("23:59"), "23:59");
+  assert.deepEqual(validateGuestMaster({
+    ...validGuestMaster,
+    agenda: validGuestMaster.agenda.map(item => ({ ...item, time: "8:00" })),
+  }, new Set(["AA", "BB"])), []);
 });
 
 test("message preflight localises each recipient and skips only affected guests", () => {

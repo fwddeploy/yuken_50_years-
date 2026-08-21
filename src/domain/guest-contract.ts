@@ -78,6 +78,15 @@ export function parseGuestEvent(value: string): GuestEvent | null {
   return null;
 }
 
+export function normalizeMasterTime(value: string): string {
+  const normalized = value.trim();
+  const match = normalized.match(/^(\d{1,2}):([0-5]\d)$/u);
+  if (!match) return normalized;
+  const hour = Number(match[1]);
+  if (hour > 23) return normalized;
+  return `${String(hour).padStart(2, "0")}:${match[2]}`;
+}
+
 export function validateGuestMaster(payload: GuestMasterPayload, peopleInitials: ReadonlySet<string> = new Set()) {
   const issues: GuestContractIssue[] = [];
   const categories = uniqueActive(payload.categories, GUEST_MASTER_SHEETS.categories, "name", issues);
@@ -108,7 +117,7 @@ export function validateGuestMaster(payload: GuestMasterPayload, peopleInitials:
   for (const item of payload.agenda.filter(row => !row.removed)) {
     if (!groups.has(keyOf(item.groupName))) addIssue(issues, GUEST_MASTER_SHEETS.agenda, item.recordId, "groupName", "The selected group does not exist in 5 Guest Groups.");
     if (!isIsoDate(item.date)) addIssue(issues, GUEST_MASTER_SHEETS.agenda, item.recordId, "date", "Use a date in YYYY-MM-DD format.");
-    if (!/^([01]\d|2[0-3]):[0-5]\d$/u.test(clean(item.time))) addIssue(issues, GUEST_MASTER_SHEETS.agenda, item.recordId, "time", "Use a 24-hour time in HH:MM format.");
+    if (!/^([01]\d|2[0-3]):[0-5]\d$/u.test(normalizeMasterTime(item.time))) addIssue(issues, GUEST_MASTER_SHEETS.agenda, item.recordId, "time", "Use a 24-hour time in HH:MM format.");
     if (!clean(item.title)) addIssue(issues, GUEST_MASTER_SHEETS.agenda, item.recordId, "title", "Agenda title is required.");
   }
 

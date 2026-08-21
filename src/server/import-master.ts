@@ -1,5 +1,5 @@
 import { MasterPayload, validateMasterPayload } from "../domain/master-contract";
-import { parseGuestEvent, parseGuestLanguage, type GuestMasterPayload } from "../domain/guest-contract";
+import { normalizeMasterTime, parseGuestEvent, parseGuestLanguage, type GuestMasterPayload } from "../domain/guest-contract";
 import { hashPin, isValidPin } from "../security/crypto";
 import { getRuntimeEnv, requireSecret } from "./runtime-env";
 
@@ -175,7 +175,7 @@ function normalizeGuestPayload(guest: GuestMasterPayload | undefined, peopleByIn
     groups: groups.map(row => ({ id: row.recordId, name: row.name.trim(), primaryPersonId: row.primaryInitials ? peopleByInitials.get(row.primaryInitials.trim().toUpperCase())?.recordId ?? null : null, secondaryPersonId: row.secondaryInitials ? peopleByInitials.get(row.secondaryInitials.trim().toUpperCase())?.recordId ?? null : null })),
     guests: guestRows,
     invitations: guests.flatMap(row => (["malur", "taj"] as const).map(event => ({ id: crypto.randomUUID(), guestId: row.recordId, event, invited: (event === "malur" ? row.malur : row.taj) ? 1 : 0 }))),
-    agenda: agenda.map(row => ({ id: row.recordId, groupId: groupByName.get(row.groupName.trim().toLocaleLowerCase("en-IN"))?.recordId, date: row.date, time: row.time, title: row.title.trim(), details: row.details?.trim() || "" })),
+    agenda: agenda.map(row => ({ id: row.recordId, groupId: groupByName.get(row.groupName.trim().toLocaleLowerCase("en-IN"))?.recordId, date: row.date, time: normalizeMasterTime(row.time), title: row.title.trim(), details: row.details?.trim() || "" })),
     plans: plans.map(row => ({ id: row.recordId, name: row.name.trim(), event: parseGuestEvent(row.event), date: row.date, mode: row.mode.trim(), routeName: row.routeName.trim(), vehicleNumber: row.vehicleNumber?.trim() || null, driverName: row.driverName?.trim() || null, driverPhone: row.driverPhone?.trim() || null })),
     planCategories: plans.flatMap(plan => plan.categoryNames.map(name => ({ planId: plan.recordId, categoryId: categoryByName.get(name.trim().toLocaleLowerCase("en-IN"))?.recordId }))),
     stops: stops.map(row => ({ id: row.recordId, planId: planByName.get(row.travelPlanName.trim().toLocaleLowerCase("en-IN"))?.recordId, order: row.order, time: row.time, place: row.place.trim() })),
