@@ -53,10 +53,13 @@ Updated: 2026-08-21
 - Latest phone audit measured 32 screen/viewport combinations across 320×568 and 360×800: 0 horizontal-overflow failures, 0 controls below 44px, 0 login vertical-overflow failures and 0 browser console errors/warnings. Numeric, decimal, phone, email, date/time and media inputs were focusable with the intended input modes.
 - Latest synthetic local D1/R2 lifecycle passed 18 of 18 HTTP checks: Master add/reflection/removal, login, forged upload rejection, protected full/range media readback, invalid-range rejection, Budget validation, app/Master guest rules, Travel add/conflict, history retention and app-row protection.
 - Latest working-tree security diff scan reviewed 21 of 21 authoritative runtime/configuration files and produced 0 reportable findings. TAC status was unverified because the advisory connector was not connected; the parent agent performed all 21 reviews because delegated workers were unavailable for this scan.
+- Latest release run completed the production build and passed 21 of 21 automated tests; the production dependency audit still reports 0 vulnerabilities.
+- Private Cloudflare-backed Sites version 4 deployed successfully. Its live D1 read-back exposes all 24 expected application tables, including attachment metadata.
+- Remote unified test Master import first reproduced one Cloudflare PBKDF2 limit failure at 210,000 iterations. After changing the portable setting to Cloudflare's 100,000-iteration ceiling and rerunning the test/build, the second preview and apply succeeded: 2,106 applied, 0 rejected, 0 warnings and 0 archived. The live `sync_batches` row independently reads `applied` with the same 2,106/0 counts.
+- The 2,106 remote test-Master records comprise 22 people, 13 sections, 202 operational jobs, 11 guest categories, 9 guest groups, 1,845 guests and 4 hotels. The remote attachment table is empty as expected before a user uploads media.
 
 ## Not complete
 
-- Importing any supplied test rows into the remote private D1 database; local D1 system testing is complete.
 - Writing permanent hidden record IDs back to the human Master Sheet.
 - Google Sheets Apps Script/service-account connection.
 - Real-data acceptance remains unproven by definition; every supplied workbook is treated only as a test fixture and the real production dataset has not been imported.
