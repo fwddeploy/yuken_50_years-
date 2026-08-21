@@ -17,7 +17,7 @@
 - Guest travel is assigned by category only. Multiple categories may share a route or vehicle; individual guest travel overrides are out of scope.
 - Hotel and room are assigned to an individual guest by name. More than one guest may share a room number.
 - A group has one primary and one secondary coordinator. Both can manage and message that group.
-- An owner-only preview deployment is authorised for phone review. Public access, a custom domain and provider credentials remain separate approvals.
+- An owner-only preview deployment is authorised for phone review. On 2026-08-21 the owner separately approved public Sites access for dummy-data RSVP testing; internal operational routes remain protected by employee authentication. This is not approval of the known shared-bootstrap-PIN model for production launch. A custom domain remains a separate approval.
 - A Master replacement must be previewed and explicitly confirmed before it can apply. The preview identifies active workflows that will be archived and operational history that will be retained.
 - D1 owns structured photo/video metadata; a private Cloudflare R2 bucket owns the bytes. Attachments are available only through an authenticated application route and are never stored in Excel, Google Sheets, Git or public browser storage.
 - Each Event update accepts at most three JPG, PNG, WebP, HEIC, MP4, MOV or WebM files; photos are limited to 10 MB each and all attached media to 50 MB per update.

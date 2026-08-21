@@ -86,6 +86,7 @@ Updated: 2026-08-21
 - Release 14 added the missing Travel and Stay send actions to the Guest UI. Travel sends are now bound from the selected route card through the send sheet to an exact travel-plan ID at server preflight, preventing another day or route for the same category/event from being selected. The focused UI-chain regression passed 1 of 1, the rendered-boundary module passed 7 of 7, the surrounding Guest suite passed 21 of 21, and the final run passed 32 of 32 tests plus build, lint, TypeScript, diff check and a 0-vulnerability production audit.
 - Private Sites version 14 deployed successfully from exact commit `4c87c3d8af1a09dab95dcf27b0c66139da8976b8` with environment revision 4.
 - Live version-14 Travel preflight rejected 1 of 1 requests that omitted the route ID with `Choose the exact travel plan to send`, then accepted 1 of 1 otherwise-identical requests carrying the exact plan ID with 1 ready and 0 skipped. No external message was sent by this check.
+- The first physical RSVP-link open reproduced the Sites owner-only ChatGPT sign-in gate before the application route. After explicit owner approval, Sites access revision 2 changed to public for dummy-data RSVP testing. An unauthenticated reproduction returned HTTP 200 at the YIL URL with the employee login present and no ChatGPT gate. Internal operational APIs remain protected by the application's employee session checks; production approval of the shared bootstrap PIN remains open.
 
 ## Not complete
 
@@ -94,5 +95,5 @@ Updated: 2026-08-21
 - Allowlisted WhatsApp provider acceptance inside an open 24-hour service window is proven for agenda, travel and stay; phone arrival and content inspection remain unproven. Production sending outside that window still requires final Meta-approved templates and exact Acele workflow mappings.
 - Core committee review and approval of final English, German and Japanese wording.
 - Physical iPhone/Android acceptance of the native keyboard, photo picker, camera capture and real video codec playback. Browser input contracts and synthetic R2 range behavior are proven; the physical device behavior is unproven.
-- Public/custom-domain deployment, load testing and pilot acceptance. An owner-only phone-review preview is authorised separately.
+- Custom-domain deployment and pilot acceptance. Public Sites access is active for dummy-data RSVP testing; this does not approve the current employee login model for production launch.
 - Public employee login approval. The shared first-time PIN must be replaced with unique claim codes or all claims completed behind a private access gate; login throttling also needs an edge policy and uniform failure responses.
