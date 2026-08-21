@@ -1,4 +1,5 @@
-const PIN_ITERATIONS = 210_000;
+// Cloudflare Workers Web Crypto rejects PBKDF2 counts above 100,000.
+const PIN_ITERATIONS = 100_000;
 const PIN_BYTES = 32;
 
 export function isValidPin(pin: string) {
