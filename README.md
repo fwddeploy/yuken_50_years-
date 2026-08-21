@@ -17,7 +17,7 @@ Internal, installable web application for coordinating Yuken India Limited's Gol
 - Explicit English, German and Japanese message-template preflight
 - Impact-previewed, confirmation-bound unified Master import
 
-Provider-backed WhatsApp/email delivery is intentionally not claimed until credentials, approved wording and delivery workers are connected.
+Provider-backed WhatsApp/email delivery, fixed-template approval, recipient preflight, RSVP links and delivery-state audit are implemented. Test delivery remains fail-closed to the protected allowlists; production WhatsApp requires the final Meta-approved workflow mapping.
 
 ## Local development
 
@@ -42,7 +42,7 @@ The deployment also requires a D1 binding named `DB` and a private R2 binding na
 
 The application consumes a validated JSON representation of the unified People, Sections, Jobs, Guest Categories, Guest Groups, Guests, Group Agenda, Travel Plans, Travel Stops and Hotels sheets. Every supplied workbook is treated as test data and remains outside the repository. A preview/confirmation handshake is required before applying an import. Google Sheets will call the same contract when live two-way sync is connected.
 
-See `docs/CONTRACT.md`, `docs/DECISIONS.md` and `docs/STATE.md` before changing data ownership or permissions.
+Start with `docs/HANDOFF.md`, then read `docs/CONTRACT.md`, `docs/DECISIONS.md` and `docs/STATE.md` before changing data ownership or permissions.
 
 ## Verification
 
