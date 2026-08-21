@@ -256,6 +256,8 @@ export const travelPlans = sqliteTable("travel_plans", {
   vehicleNumber: text("vehicle_number"),
   driverName: text("driver_name"),
   driverPhone: text("driver_phone"),
+  conductorName: text("conductor_name"),
+  conductorPhone: text("conductor_phone"),
   active: integer("active", { mode: "boolean" }).notNull().default(true),
   sourceUpdatedAt: text("source_updated_at"),
   ...timestamps,
