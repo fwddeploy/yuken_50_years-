@@ -39,6 +39,8 @@ export type GuestTravelPlan = {
   vehicleNumber?: string;
   driverName?: string;
   driverPhone?: string;
+  conductorName?: string;
+  conductorPhone?: string;
   categories: GuestCategory[];
   stops: { id: string; order: number; time: string; place: string }[];
 };
