@@ -65,19 +65,28 @@ export async function flushGoogleSheetOutbox(limit = 25) {
   try {
     const response = await postToGoogle(url, { secret, action: "write", writes });
     if (!response.ok) throw new Error(response.error || "Google Sheets rejected the write batch.");
+    const results = new Map((response.results ?? []).map(result => [result.id, result]));
+    const deliveredRows = selected.filter(row => results.get(row.id)?.ok === true);
+    const failedRows = selected.filter(row => results.get(row.id)?.ok !== true);
     const deliveredAt = new Date().toISOString();
-    await runtime.DB.batch(selected.map(row => runtime.DB.prepare("UPDATE sheet_sync_outbox SET status='delivered', attempts=attempts+1, last_error=NULL, next_attempt_at=NULL, delivered_at=?, updated_at=? WHERE id=? AND updated_at=?").bind(deliveredAt, deliveredAt, row.id, row.updatedAt)));
-    return { configured: true, attempted: selected.length, delivered: selected.length };
+    const statements = deliveredRows.map(row => runtime.DB.prepare("UPDATE sheet_sync_outbox SET status='delivered', attempts=attempts+1, last_error=NULL, next_attempt_at=NULL, delivered_at=?, updated_at=? WHERE id=? AND updated_at=?").bind(deliveredAt, deliveredAt, row.id, row.updatedAt));
+    statements.push(...failureStatements(runtime.DB, failedRows, row => results.get(row.id)?.error || "Google Sheets did not acknowledge this row."));
+    if (statements.length) await runtime.DB.batch(statements);
+    return { configured: true, attempted: selected.length, delivered: deliveredRows.length, failed: failedRows.length, error: failedRows.length ? "Some Sheet rows changed and need review." : undefined };
   } catch (error) {
     const message = error instanceof Error ? error.message.slice(0, 500) : "Google Sheets request failed.";
-    const failedAt = new Date();
-    await runtime.DB.batch(selected.map(row => {
-      const waitMinutes = Math.min(60, 2 ** Math.min(row.attempts, 5));
-      return runtime.DB.prepare("UPDATE sheet_sync_outbox SET status='failed', attempts=attempts+1, last_error=?, next_attempt_at=?, updated_at=? WHERE id=? AND updated_at=?")
-        .bind(message, new Date(failedAt.getTime() + waitMinutes * 60_000).toISOString(), failedAt.toISOString(), row.id, row.updatedAt);
-    }));
+    await runtime.DB.batch(failureStatements(runtime.DB, selected, () => message));
     return { configured: true, attempted: selected.length, delivered: 0, error: message };
   }
+}
+
+function failureStatements(database: D1Database, rows: { id: string; updatedAt: string; attempts: number }[], messageFor: (row: { id: string; updatedAt: string; attempts: number }) => string) {
+  const failedAt = new Date();
+  return rows.map(row => {
+    const waitMinutes = Math.min(60, 2 ** Math.min(row.attempts, 5));
+    return database.prepare("UPDATE sheet_sync_outbox SET status='failed', attempts=attempts+1, last_error=?, next_attempt_at=?, updated_at=? WHERE id=? AND updated_at=?")
+      .bind(messageFor(row).slice(0, 500), new Date(failedAt.getTime() + waitMinutes * 60_000).toISOString(), failedAt.toISOString(), row.id, row.updatedAt);
+  });
 }
 
 export async function fetchGoogleSheetsMaster(): Promise<MasterPayload> {
@@ -90,7 +99,16 @@ export async function fetchGoogleSheetsMaster(): Promise<MasterPayload> {
   return response.master as MasterPayload;
 }
 
-async function postToGoogle(url: string, body: unknown): Promise<{ ok?: boolean; error?: string; master?: unknown }> {
+export async function baselineGoogleSheetsMaster() {
+  const runtime = getRuntimeEnv();
+  const url = runtime.GOOGLE_SHEETS_WEB_APP_URL?.trim() ?? "";
+  const secret = runtime.GOOGLE_SHEETS_SHARED_SECRET?.trim() ?? "";
+  if (!googleSheetsConfigured()) throw new Error("Google Sheets is not connected yet.");
+  const response = await postToGoogle(url, { secret, action: "baseline" });
+  if (!response.ok) throw new Error(response.error || "Google Sheets baseline could not be recorded.");
+}
+
+async function postToGoogle(url: string, body: unknown): Promise<{ ok?: boolean; error?: string; master?: unknown; results?: { id: string; ok: boolean; error?: string }[] }> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 8_000);
   try {
@@ -102,7 +120,7 @@ async function postToGoogle(url: string, body: unknown): Promise<{ ok?: boolean;
       signal: controller.signal,
     });
     if (!response.ok) throw new Error(`Google Sheets returned HTTP ${response.status}.`);
-    return await response.json() as { ok?: boolean; error?: string; master?: unknown };
+    return await response.json() as { ok?: boolean; error?: string; master?: unknown; results?: { id: string; ok: boolean; error?: string }[] };
   } finally {
     clearTimeout(timeout);
   }

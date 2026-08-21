@@ -4,6 +4,7 @@ import { guestCategories, travelPlanCategories, travelPlans, travelStops } from 
 import { authenticateRequest } from "../../../../../src/server/session";
 import { getRuntimeEnv } from "../../../../../src/server/runtime-env";
 import { flushGoogleSheetOutbox, queueSheetSyncStatement } from "../../../../../src/server/google-sheets";
+import { waitUntil } from "cloudflare:workers";
 
 type TravelInput = { name?: string; event?: "malur" | "taj"; date?: string; mode?: string; routeName?: string; vehicleNumber?: string; driverName?: string; driverPhone?: string; categoryIds?: string[]; stops?: { id?: string; time?: string; place?: string }[] };
 
@@ -53,10 +54,10 @@ export async function PUT(request: Request, context: { params: Promise<{ id: str
       WHERE travel_stops.travel_plan_id=excluded.travel_plan_id
   `).bind(stop.id, id, stop.order, stop.time, stop.place, now, now));
   statements.push(database.prepare("INSERT INTO audit_events (id, actor_id, action, entity_type, entity_id, before_json, after_json, created_at) VALUES (?, ?, ?, 'travel_plan', ?, ?, ?, ?)").bind(crypto.randomUUID(), user.personId, plan ? "guest.travel-updated" : "guest.travel-created", id, JSON.stringify(plan ? { plan, categories: beforeCategories, stops: beforeStops } : null), JSON.stringify({ name, event, date, mode, routeName, vehicleNumber, driverName, driverPhone, categoryIds, stops }), now));
-  statements.push(queueSheetSyncStatement(database, { entityType: "travel_plan", entityId: id, operation: "replace_scope", payload: { plan: { recordId: id, name, event, date, categoryNames: categories.map(category => category.name), mode, routeName, vehicleNumber: vehicleNumber ?? "", driverName: driverName ?? "", driverPhone: driverPhone ?? "", removed: false }, stops: stops.map(stop => ({ recordId: stop.id, travelPlanName: name, order: stop.order, time: stop.time, place: stop.place, removed: false })) }, actorId: user.personId, now }));
+  statements.push(queueSheetSyncStatement(database, { entityType: "travel_plan", entityId: id, operation: "replace_scope", payload: { previousName: plan?.name ?? name, plan: { recordId: id, name, event, date, categoryNames: categories.map(category => category.name), mode, routeName, vehicleNumber: vehicleNumber ?? "", driverName: driverName ?? "", driverPhone: driverPhone ?? "", removed: false }, stops: stops.map(stop => ({ recordId: stop.id, travelPlanName: name, order: stop.order, time: stop.time, place: stop.place, removed: false })) }, actorId: user.personId, now }));
   try {
     await database.batch(statements);
-    await flushGoogleSheetOutbox(10);
+    waitUntil(flushGoogleSheetOutbox(10).then(() => undefined));
   } catch (error) {
     if (error instanceof Error && error.message.toLocaleLowerCase("en-IN").includes("unique")) {
       return Response.json({ error: "A travel plan with this name already exists. Choose a different name." }, { status: 409 });

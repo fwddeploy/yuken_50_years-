@@ -6,6 +6,7 @@
 
 const FIRST_DATA_ROW = 5;
 const RECORD_ID = "Permanent record ID — do not edit";
+const SYNC_NOTE_PREFIX = "YIL_SYNC:";
 
 function doPost(event) {
   try {
@@ -13,11 +14,15 @@ function doPost(event) {
     const properties = PropertiesService.getScriptProperties();
     if (!request.secret || request.secret !== properties.getProperty("YIL_SYNC_SECRET")) return json_({ ok: false, error: "Not authorised." });
     const book = SpreadsheetApp.openById(properties.getProperty("YIL_SPREADSHEET_ID"));
-    if (request.action === "export") return withLock_(function () { return json_({ ok: true, master: exportMaster_(book) }); });
+    if (request.action === "export") return withLock_(function () { ensurePermanentIds_(book); return json_({ ok: true, master: exportMaster_(book) }); });
+    if (request.action === "baseline") return withLock_(function () { baselineMaster_(book); return json_({ ok: true }); });
     if (request.action === "write" && Array.isArray(request.writes)) return withLock_(function () {
-      request.writes.forEach(function (write) { applyWrite_(book, write); });
+      const results = request.writes.map(function (write) {
+        try { preflightWrite_(book, write); applyWrite_(book, write); return { id: write.id, ok: true }; }
+        catch (error) { return { id: write.id, ok: false, error: String(error && error.message ? error.message : error) }; }
+      });
       SpreadsheetApp.flush();
-      return json_({ ok: true, accepted: request.writes.length });
+      return json_({ ok: true, results: results });
     });
     return json_({ ok: false, error: "Unsupported action." });
   } catch (error) {
@@ -68,11 +73,69 @@ function applyWrite_(book, write) {
     const plan = payload.plan || {};
     upsert_(book, "8 Travel Plans", plan.recordId, { "Plan name": plan.name, Event: title_(plan.event), "Date YYYY-MM-DD": plan.date, "Guest categories": (plan.categoryNames || []).join(", "), Mode: plan.mode, "Route name": plan.routeName, "Vehicle number": plan.vehicleNumber, "Driver name": plan.driverName, "Driver phone": plan.driverPhone, "Remove this plan?": "No" });
     const stopIds = new Set((payload.stops || []).map(function (stop) { return String(stop.recordId); }));
-    archiveScope_(book, "9 Travel Stops", function (row) { return text_(row["Travel plan"]) === text_(plan.name); }, stopIds, "Remove this stop?");
+    archiveScope_(book, "9 Travel Stops", function (row) { return [text_(payload.previousName), text_(plan.name)].indexOf(text_(row["Travel plan"])) >= 0; }, stopIds, "Remove this stop?");
     (payload.stops || []).forEach(function (stop) { upsert_(book, "9 Travel Stops", stop.recordId, { "Travel plan": stop.travelPlanName, "Stop order": stop.order, "Time HH:MM": stop.time, Place: stop.place, "Remove this stop?": "No" }); });
     return;
   }
   throw new Error("Unsupported write entity: " + write.entityType);
+}
+
+function preflightWrite_(book, write) {
+  const payload = write.payload || {};
+  if (write.entityType === "guest") return assertRecordSafe_(book, "6 Guests", write.entityId);
+  if (write.entityType === "group_agenda") {
+    assertScopeSafe_(book, "7 Group Agenda", function (row) { return text_(row.Group) === text_(payload.groupName) && text_(row["Date YYYY-MM-DD"]) === text_(payload.date); });
+    (payload.items || []).forEach(function (item) { assertRecordSafe_(book, "7 Group Agenda", item.recordId); });
+    return;
+  }
+  if (write.entityType === "travel_plan") {
+    const plan = payload.plan || {};
+    assertRecordSafe_(book, "8 Travel Plans", plan.recordId);
+    assertScopeSafe_(book, "9 Travel Stops", function (row) { return [text_(payload.previousName), text_(plan.name)].indexOf(text_(row["Travel plan"])) >= 0; });
+    (payload.stops || []).forEach(function (stop) { assertRecordSafe_(book, "9 Travel Stops", stop.recordId); });
+  }
+}
+
+function ensurePermanentIds_(book) {
+  ["1 People", "2 Sections", "3 Jobs", "4 Guest Categories", "5 Guest Groups", "6 Guests", "7 Group Agenda", "8 Travel Plans", "9 Travel Stops", "10 Hotels"].forEach(function (sheetName) {
+    const sheet = requireSheet_(book, sheetName), lastColumn = sheet.getLastColumn();
+    if (!lastColumn || sheet.getLastRow() < FIRST_DATA_ROW) return;
+    const headers = sheet.getRange(4, 1, 1, lastColumn).getDisplayValues()[0], idColumn = headers.indexOf(RECORD_ID) + 1;
+    if (!idColumn) throw new Error(sheetName + " has no permanent record ID column.");
+    const values = sheet.getRange(FIRST_DATA_ROW, 1, sheet.getLastRow() - FIRST_DATA_ROW + 1, lastColumn).getDisplayValues();
+    values.forEach(function (row, index) {
+      if (!text_(row[idColumn - 1]) && row.some(function (cell, column) { return column !== idColumn - 1 && text_(cell); })) sheet.getRange(FIRST_DATA_ROW + index, idColumn).setValue(Utilities.getUuid());
+    });
+  });
+  SpreadsheetApp.flush();
+}
+
+function baselineMaster_(book) {
+  ["1 People", "2 Sections", "3 Jobs", "4 Guest Categories", "5 Guest Groups", "6 Guests", "7 Group Agenda", "8 Travel Plans", "9 Travel Stops", "10 Hotels"].forEach(function (sheetName) {
+    const sheet = requireSheet_(book, sheetName), lastColumn = sheet.getLastColumn();
+    if (!lastColumn || sheet.getLastRow() < FIRST_DATA_ROW) return;
+    const headers = sheet.getRange(4, 1, 1, lastColumn).getDisplayValues()[0], idColumn = headers.indexOf(RECORD_ID) + 1;
+    const values = sheet.getRange(FIRST_DATA_ROW, 1, sheet.getLastRow() - FIRST_DATA_ROW + 1, lastColumn).getDisplayValues();
+    values.forEach(function (row, index) { if (text_(row[idColumn - 1])) sheet.getRange(FIRST_DATA_ROW + index, idColumn).setNote(SYNC_NOTE_PREFIX + rowHash_(row)); });
+  });
+}
+
+function assertRecordSafe_(book, sheetName, recordId) {
+  const sheet = requireSheet_(book, sheetName), headers = sheet.getRange(4, 1, 1, sheet.getLastColumn()).getDisplayValues()[0], idColumn = headers.indexOf(RECORD_ID) + 1;
+  const rowNumber = findRow_(sheet, idColumn, recordId);
+  if (rowNumber) assertRowSafe_(sheet, rowNumber, headers.length, idColumn);
+}
+
+function assertScopeSafe_(book, sheetName, predicate) {
+  const sheet = requireSheet_(book, sheetName), headers = sheet.getRange(4, 1, 1, sheet.getLastColumn()).getDisplayValues()[0], idColumn = headers.indexOf(RECORD_ID) + 1;
+  if (sheet.getLastRow() < FIRST_DATA_ROW) return;
+  const values = sheet.getRange(FIRST_DATA_ROW, 1, sheet.getLastRow() - FIRST_DATA_ROW + 1, headers.length).getDisplayValues();
+  values.forEach(function (cells, index) { const row = {}; headers.forEach(function (header, column) { row[header] = cells[column]; }); if (predicate(row)) assertRowSafe_(sheet, FIRST_DATA_ROW + index, headers.length, idColumn); });
+}
+
+function assertRowSafe_(sheet, rowNumber, width, idColumn) {
+  const row = sheet.getRange(rowNumber, 1, 1, width).getDisplayValues()[0], note = sheet.getRange(rowNumber, idColumn).getNote();
+  if (!note || note.indexOf(SYNC_NOTE_PREFIX) !== 0 || note.slice(SYNC_NOTE_PREFIX.length) !== rowHash_(row)) throw new Error("Sheet row changed since the last confirmed pull. Check and apply Sheet changes before pushing app edits.");
 }
 
 function rows_(book, sheetName) {
@@ -95,13 +158,14 @@ function upsert_(book, sheetName, recordId, values) {
   headers.forEach(function (header, index) { if (Object.prototype.hasOwnProperty.call(values, header)) row[index] = values[header] == null ? "" : values[header]; });
   row[idColumn - 1] = recordId;
   sheet.getRange(rowNumber, 1, 1, headers.length).setValues([row]);
+  sheet.getRange(rowNumber, idColumn).setNote(SYNC_NOTE_PREFIX + rowHash_(row.map(function (cell) { return cell == null ? "" : String(cell); })));
 }
 
 function archive_(book, sheetName, recordId, removeHeader) {
   const sheet = requireSheet_(book, sheetName), headers = sheet.getRange(4, 1, 1, sheet.getLastColumn()).getDisplayValues()[0];
   const idColumn = headers.indexOf(RECORD_ID) + 1, removeColumn = headers.indexOf(removeHeader) + 1;
   const row = findRow_(sheet, idColumn, recordId);
-  if (row && removeColumn) sheet.getRange(row, removeColumn).setValue("Yes");
+  if (row && removeColumn) { sheet.getRange(row, removeColumn).setValue("Yes"); const values = sheet.getRange(row, 1, 1, headers.length).getDisplayValues()[0]; sheet.getRange(row, idColumn).setNote(SYNC_NOTE_PREFIX + rowHash_(values)); }
 }
 
 function archiveScope_(book, sheetName, predicate, keepIds, removeHeader) {
@@ -111,7 +175,7 @@ function archiveScope_(book, sheetName, predicate, keepIds, removeHeader) {
   const values = sheet.getRange(FIRST_DATA_ROW, 1, sheet.getLastRow() - FIRST_DATA_ROW + 1, headers.length).getDisplayValues();
   values.forEach(function (cells, index) {
     const row = {}; headers.forEach(function (header, column) { row[header] = cells[column]; });
-    if (cells.some(function (cell) { return text_(cell); }) && predicate(row) && !keepIds.has(text_(row[RECORD_ID]))) sheet.getRange(FIRST_DATA_ROW + index, removeColumn).setValue("Yes");
+    if (cells.some(function (cell) { return text_(cell); }) && predicate(row) && !keepIds.has(text_(row[RECORD_ID]))) { sheet.getRange(FIRST_DATA_ROW + index, removeColumn).setValue("Yes"); cells[removeColumn - 1] = "Yes"; const idColumn = headers.indexOf(RECORD_ID) + 1; sheet.getRange(FIRST_DATA_ROW + index, idColumn).setNote(SYNC_NOTE_PREFIX + rowHash_(cells)); }
   });
 }
 
@@ -127,4 +191,5 @@ function yes_(value) { return /^(yes|y|true|1)$/i.test(text_(value)); }
 function yn_(value) { return value ? "Yes" : "No"; }
 function title_(value) { const text = text_(value); return text ? text.charAt(0).toUpperCase() + text.slice(1) : ""; }
 function list_(value) { return text_(value).split(",").map(function (part) { return part.trim(); }).filter(Boolean); }
+function rowHash_(row) { return Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, JSON.stringify(row.map(text_))).map(function (b) { return (b < 0 ? b + 256 : b).toString(16).padStart(2, "0"); }).join(""); }
 function json_(value) { return ContentService.createTextOutput(JSON.stringify(value)).setMimeType(ContentService.MimeType.JSON); }

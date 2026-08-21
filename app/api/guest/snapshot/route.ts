@@ -2,10 +2,13 @@ import { asc, eq } from "drizzle-orm";
 import { getDb } from "../../../../db";
 import { groupAgendaItems, guestCategories, guestEventInvitations, guestGroups, guestStays, guests, hotels, people, travelPlanCategories, travelPlans, travelStops } from "../../../../db/schema";
 import { authenticateRequest } from "../../../../src/server/session";
+import { flushGoogleSheetOutbox, googleSheetsConfigured } from "../../../../src/server/google-sheets";
+import { waitUntil } from "cloudflare:workers";
 
 export async function GET(request: Request) {
   const user = await authenticateRequest(request);
   if (!user) return Response.json({ error: "Sign in again." }, { status: 401, headers: { "Cache-Control": "no-store" } });
+  if (googleSheetsConfigured()) waitUntil(flushGoogleSheetOutbox(10).then(() => undefined));
   const db = getDb();
   const [categoryRows, groupRows, guestRows, invitationRows, agendaRows, planRows, planCategoryRows, stopRows, hotelRows, stayRows, peopleRows] = await Promise.all([
     db.select({ id: guestCategories.id, name: guestCategories.name }).from(guestCategories).where(eq(guestCategories.active, true)).orderBy(asc(guestCategories.name)),

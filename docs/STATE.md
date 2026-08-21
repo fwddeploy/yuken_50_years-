@@ -71,6 +71,8 @@ Updated: 2026-08-21
 - Release-readiness build completed and all 25 of 25 automated tests passed; ESLint and `git diff --check` passed with 0 errors.
 - A blind independent baseline audit reproduced 0 of 1 Google connectors, 0 of 1 update prompts with byte-identical service workers and no safe tracked production load harness. The subsequent implementation directly addresses all three reproduced gaps; live Google delivery remains unproven until real connector credentials are supplied.
 - Private Sites release 6 installed the byte-distinct `yil-event-shell-aea173091a4c` worker over the previous fixed `v2` worker. The browser displayed 1 of 1 update prompts; selecting Refresh update produced 1 of 1 controlled reloads, removed the old cache and left 0 waiting workers.
+- Private Sites release 7 then produced a second byte-distinct worker, `yil-event-shell-bc13e14cee94`. It reached `installed/waiting` in 1 of 1 checks, showed the update banner, and the user-facing refresh promoted it in 1 of 1 checks; the old release-6 cache was removed and 0 waiting workers remained.
+- Independent re-audit passed the PWA transition and staged-load harness, then reproduced three Sheets edge cases plus one standalone TypeScript configuration failure. The follow-up closes them with row-hash conflict detection, post-apply Sheet baselines, automatic permanent IDs for human-created rows, background delivery/retry during app writes and active Guest reads, partial-batch acknowledgement, and an explicit no-emit TypeScript configuration. Final re-verification passed 25 of 25 tests, ESLint, standalone TypeScript and `git diff --check`.
 
 ## Not complete
 

@@ -2,6 +2,7 @@ import { getDb } from "../../../../db";
 import { auditEvents, guestCategories, guestEventInvitations, guestGroups, guests, sheetSyncOutbox } from "../../../../db/schema";
 import { eq } from "drizzle-orm";
 import { flushGoogleSheetOutbox } from "../../../../src/server/google-sheets";
+import { waitUntil } from "cloudflare:workers";
 import { authenticateRequest } from "../../../../src/server/session";
 import { GuestWriteError, type GuestWriteInput, validateGuestWrite } from "../../../../src/server/guest-write";
 
@@ -25,7 +26,7 @@ export async function POST(request: Request) {
       db.insert(sheetSyncOutbox).values({ id: crypto.randomUUID(), entityType: "guest", entityId: id, operation: "upsert", payloadJson: JSON.stringify(sheetPayload), status: "pending", attempts: 0, actorId: user.personId, createdAt: now, updatedAt: now }).onConflictDoUpdate({ target: [sheetSyncOutbox.entityType, sheetSyncOutbox.entityId], set: { operation: "upsert", payloadJson: JSON.stringify(sheetPayload), status: "pending", attempts: 0, lastError: null, nextAttemptAt: null, deliveredAt: null, actorId: user.personId, updatedAt: now } }),
     ];
     await db.batch(writes as [typeof writes[number], ...typeof writes[number][]]);
-    await flushGoogleSheetOutbox(10);
+    waitUntil(flushGoogleSheetOutbox(10).then(() => undefined));
     return Response.json({ id }, { status: 201, headers: { "Cache-Control": "no-store" } });
   } catch (error) {
     if (error instanceof GuestWriteError) return Response.json({ error: error.message }, { status: error.status });

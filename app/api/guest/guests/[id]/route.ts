@@ -2,6 +2,7 @@ import { and, eq } from "drizzle-orm";
 import { getDb } from "../../../../../db";
 import { auditEvents, guestCategories, guestEventInvitations, guestGroups, guests, sheetSyncOutbox } from "../../../../../db/schema";
 import { flushGoogleSheetOutbox } from "../../../../../src/server/google-sheets";
+import { waitUntil } from "cloudflare:workers";
 import { authenticateRequest } from "../../../../../src/server/session";
 import { GuestWriteError, type GuestWriteInput, validateGuestWrite } from "../../../../../src/server/guest-write";
 
@@ -28,7 +29,7 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
       db.insert(sheetSyncOutbox).values({ id: crypto.randomUUID(), entityType: "guest", entityId: id, operation: "upsert", payloadJson: JSON.stringify(sheetPayload), status: "pending", attempts: 0, actorId: user.personId, createdAt: now, updatedAt: now }).onConflictDoUpdate({ target: [sheetSyncOutbox.entityType, sheetSyncOutbox.entityId], set: { operation: "upsert", payloadJson: JSON.stringify(sheetPayload), status: "pending", attempts: 0, lastError: null, nextAttemptAt: null, deliveredAt: null, actorId: user.personId, updatedAt: now } }),
     ];
     await db.batch(writes as [typeof writes[number], ...typeof writes[number][]]);
-    await flushGoogleSheetOutbox(10);
+    waitUntil(flushGoogleSheetOutbox(10).then(() => undefined));
     return Response.json({ id }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
     if (error instanceof GuestWriteError) return Response.json({ error: error.message }, { status: error.status });
@@ -49,6 +50,6 @@ export async function DELETE(request: Request, context: { params: Promise<{ id: 
     db.insert(auditEvents).values({ id: crypto.randomUUID(), actorId: user.personId, action: "guest.archived", entityType: "guest", entityId: id, beforeJson: JSON.stringify({ ...before, phone: Boolean(before.phone), email: Boolean(before.email) }), afterJson: JSON.stringify({ active: false }), createdAt: now }),
     db.insert(sheetSyncOutbox).values({ id: crypto.randomUUID(), entityType: "guest", entityId: id, operation: "archive", payloadJson: JSON.stringify({ recordId: id, removed: true }), status: "pending", attempts: 0, actorId: user.personId, createdAt: now, updatedAt: now }).onConflictDoUpdate({ target: [sheetSyncOutbox.entityType, sheetSyncOutbox.entityId], set: { operation: "archive", payloadJson: JSON.stringify({ recordId: id, removed: true }), status: "pending", attempts: 0, lastError: null, nextAttemptAt: null, deliveredAt: null, actorId: user.personId, updatedAt: now } }),
   ]);
-  await flushGoogleSheetOutbox(10);
+  waitUntil(flushGoogleSheetOutbox(10).then(() => undefined));
   return Response.json({ id, active: false }, { headers: { "Cache-Control": "no-store" } });
 }

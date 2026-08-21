@@ -36,4 +36,8 @@ test("Google Sheets connector has durable outbox, pull preview and exact-version
   assert.match(appsScript, /LockService\.getScriptLock/);
   assert.match(appsScript, /YIL_SYNC_SECRET/);
   assert.match(appsScript, /Permanent record ID — do not edit/);
+  assert.match(appsScript, /ensurePermanentIds_/);
+  assert.match(appsScript, /Sheet row changed since the last confirmed pull/);
+  assert.match(connector, /failureStatements/);
+  assert.match(route, /baselineGoogleSheetsMaster/);
 });
