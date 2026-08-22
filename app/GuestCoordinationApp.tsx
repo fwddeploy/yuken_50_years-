@@ -198,11 +198,6 @@ function MineView({ user, snapshot, send, saveAgenda, saveTravel }: { user: Even
   const agendaMessage = group ? buildAgendaPreview(group, selectedDate, agenda) : "";
   const travelMessage = group ? buildTravelPreview(group, selectedDate, dayTravel) : "";
 
-  function removeAgendaLine(id: string) {
-    if (!group || !window.confirm("Remove this agenda line? It will no longer appear in the group message.")) return;
-    void saveAgenda(group.id, selectedDate, agenda.filter(item => item.id !== id));
-  }
-
   async function copy(text: string) {
     await navigator.clipboard.writeText(text);
   }
@@ -217,8 +212,7 @@ function MineView({ user, snapshot, send, saveAgenda, saveTravel }: { user: Even
 
   return <>
     {mineHero}
-    <aside className="mineGuidance">Everything <b>{group.name}</b> needs to be told — review each line, then send the agenda and travel separately so nobody receives one long message.</aside>
-    <section className="mineGroupPicker"><p className="eyebrow">Your groups</p><div>{groups.map(item => <button key={item.id} className={item.id === group.id ? "active" : ""} onClick={() => { setGroupId(item.id); setDateChoice("2026-11-15"); }}>{item.name}</button>)}</div></section>
+    <section className="mineGroupPicker"><FilterPicker label="Your group" value={group.id} options={groups.map(item => ({ id: item.id, name: item.name }))} change={id => { setGroupId(id); setDateChoice("2026-11-15"); }} /></section>
     <div className="mineSegments" role="tablist" aria-label="Group message type"><button className={segment === "agenda" ? "active" : ""} onClick={() => setSegment("agenda")}>Agenda · {agenda.length}</button><button className={segment === "travel" ? "active" : ""} onClick={() => setSegment("travel")}>Travel · {dayTravel.length}</button></div>
     <div className="mineGroupPicker mineDayBar"><div role="group" aria-label="Choose a day"><button className={allDays ? "active" : ""} onClick={() => setDateChoice("all")}>All days</button>{availableDates.map(date => <button key={date} className={!allDays && selectedDate === date ? "active" : ""} onClick={() => setDateChoice(date)}>{shortDate(date)}</button>)}<label className="mineAddDate"><span>＋ Add date</span><input type="date" min="2026-01-01" max="2026-12-31" aria-label="Add another day for this group" value="" onChange={event => { const value = event.target.value; if (!value) return; setExtraDates(dates => dates.includes(value) ? dates : [...dates, value]); setDateChoice(value); }} /></label></div></div>
     <div className="mineDayHeader"><div><h1>{allDays ? "All days" : formatDate(selectedDate)}</h1><span>{allDays ? (segment === "agenda" ? `${(group?.agenda ?? []).length} lines` : `${travelPlans.length} vehicles`) : (segment === "agenda" ? `${agenda.length} lines` : `${dayTravel.length} vehicles`)}</span></div></div>
@@ -232,7 +226,7 @@ function MineView({ user, snapshot, send, saveAgenda, saveTravel }: { user: Even
       </>}
       <p className="mineAllNote">This is the whole plan for {group.name}. Tap a day to add lines, review the exact message and send it — messages always go one day at a time.</p>
     </> : segment === "agenda" ? <>
-      <div className="mineLineList">{agenda.map(item => <article key={item.id}><button className="mineLineMain" onClick={() => setEditingAgenda(true)}><time>{item.time}</time><span><b>{item.title}</b><small>{item.details || "No additional details"}</small></span><i>›</i></button><button className="mineRemove" aria-label={`Remove ${item.title}`} onClick={() => removeAgendaLine(item.id)}>×</button></article>)}</div>
+      <div className="mineLineList">{agenda.map(item => <article className="noRemove" key={item.id}><button className="mineLineMain" onClick={() => setEditingAgenda(true)}><time>{item.time}</time><span><b>{item.title}</b><small>{item.details || "No additional details"}</small></span><i>›</i></button></article>)}</div>
       {!agenda.length && <div className="quietState"><b>No agenda for this date</b><span>Add the first line before sending.</span></div>}
       <button className="secondaryAction mineAddLine" onClick={() => setEditingAgenda(true)}>＋ Add a line</button>
       <MessagePreview title="What they will receive" text={agendaMessage} note="The wording is approved centrally. Names, dates and agenda lines are filled from live data." />
