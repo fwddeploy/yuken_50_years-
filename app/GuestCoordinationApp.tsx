@@ -46,8 +46,11 @@ export default function GuestCoordinationApp({ user, team, back, signOut }: { us
   }, []);
 
   function navigateGuestTab(next: GuestTab) {
-    window.history.pushState({ ...(window.history.state ?? {}), yilApp: true, screen: "guest", guestTab: next }, "");
-    setSendAudience(null); setTab(next); window.scrollTo(0, 0);
+    const closingSheet = Boolean(sendAudience) || sheetSyncOpen;
+    const state: Record<string, unknown> = { ...(window.history.state ?? {}), yilApp: true, screen: "guest", guestTab: next };
+    if (closingSheet) delete state.yilSheet;
+    if (closingSheet) window.history.replaceState(state, ""); else window.history.pushState(state, "");
+    setSendAudience(null); setSheetSyncOpen(false); setTab(next); window.scrollTo(0, 0);
   }
 
   async function loadSnapshot() {
