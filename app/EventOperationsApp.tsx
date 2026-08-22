@@ -12,6 +12,7 @@ type Screen = "login" | "pin" | "choose" | "event" | "guest";
 type EventTab = "home" | "updates" | "malur" | "taj" | "budget";
 type EventTeamMember = { id: string; initials: string; fullName: string };
 const APP_TODAY_MS = Date.now();
+const RESUME_RESET_AFTER_MS = 5 * 60 * 1000;
 
 function daysToGo(date: string) {
   const days = Math.ceil((new Date(`${date}T00:00:00`).getTime() - APP_TODAY_MS) / 86400000);
@@ -47,11 +48,31 @@ export default function EventOperationsApp() {
   const screenRef = useRef<Screen>("login");
   const tabRef = useRef<EventTab>("home");
   const sectionRef = useRef<string | null>(null);
+  const hiddenAtRef = useRef<number | null>(null);
 
   useEffect(() => { userRef.current = user; }, [user]);
   useEffect(() => { screenRef.current = screen; }, [screen]);
   useEffect(() => { tabRef.current = tab; }, [tab]);
   useEffect(() => { sectionRef.current = selectedSectionId; }, [selectedSectionId]);
+
+  useEffect(() => {
+    function handleVisibilityChange() {
+      if (document.visibilityState === "hidden") {
+        hiddenAtRef.current = Date.now();
+        return;
+      }
+      const hiddenAt = hiddenAtRef.current;
+      hiddenAtRef.current = null;
+      if (hiddenAt === null || !userRef.current) return;
+      const awayMs = Date.now() - hiddenAt;
+      if (awayMs >= RESUME_RESET_AFTER_MS && (screenRef.current === "event" || screenRef.current === "guest")) {
+        navigateScreen("choose", true);
+      }
+    }
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    return () => document.removeEventListener("visibilitychange", handleVisibilityChange);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     window.history.replaceState({ ...(window.history.state ?? {}), yilApp: true, screen: "login", eventTab: "home" }, "");
@@ -76,18 +97,26 @@ export default function EventOperationsApp() {
   function navigateScreen(next: Screen, replace = false) {
     const state: Record<string, unknown> = { ...(window.history.state ?? {}), yilApp: true, screen: next, eventTab: tab };
     if (next === "guest") state.guestTab = "mine"; else delete state.guestTab;
-    window.history[replace ? "replaceState" : "pushState"](state, "");
+    const closingSheet = Boolean(selectedJobId) || budgetOpen;
+    if (closingSheet) delete state.yilSheet;
+    if (replace || closingSheet) window.history.replaceState(state, ""); else window.history.pushState(state, "");
     setSelectedJobId(null); setSelectedSectionId(null); setBudgetOpen(false); setEventSearchOpen(false); setScreen(next); window.scrollTo(0, 0);
   }
 
   function openSectionWithHistory(id: string) {
-    window.history.pushState({ ...(window.history.state ?? {}), yilApp: true, screen: "event", eventTab: tab, sectionId: id }, "");
-    setSelectedSectionId(id); window.scrollTo(0, 0);
+    const closingSheet = Boolean(selectedJobId) || budgetOpen;
+    const state: Record<string, unknown> = { ...(window.history.state ?? {}), yilApp: true, screen: "event" as const, eventTab: tab, sectionId: id };
+    if (closingSheet) delete state.yilSheet;
+    if (closingSheet) window.history.replaceState(state, ""); else window.history.pushState(state, "");
+    setSelectedJobId(null); setBudgetOpen(false); setSelectedSectionId(id); window.scrollTo(0, 0);
   }
 
   function navigateEventTab(next: EventTab) {
-    window.history.pushState({ ...(window.history.state ?? {}), yilApp: true, screen: "event", eventTab: next }, "");
-    setSelectedSectionId(null); setEventSearchOpen(false); setTab(next); window.scrollTo(0, 0);
+    const closingSheet = Boolean(selectedJobId) || budgetOpen;
+    const state: Record<string, unknown> = { ...(window.history.state ?? {}), yilApp: true, screen: "event" as const, eventTab: next };
+    if (closingSheet) delete state.yilSheet;
+    if (closingSheet) window.history.replaceState(state, ""); else window.history.pushState(state, "");
+    setSelectedSectionId(null); setEventSearchOpen(false); setSelectedJobId(null); setBudgetOpen(false); setTab(next); window.scrollTo(0, 0);
   }
 
   useEffect(() => {
@@ -271,6 +300,7 @@ function CommitteeStrip({ team, selected, select }: { team: EventTeamMember[]; s
 }
 
 function EventSearch({ value, change, close }: { value: string; change: (value: string) => void; close: () => void }) {
+  useSheetHistory(close);
   return <section className="eventSearchPanel"><label><span aria-hidden="true">⌕</span><input type="search" value={value} onChange={event => change(event.target.value)} placeholder="Search activities, people or updates" aria-label="Search activities, people or updates" /></label><button onClick={close}>Close</button></section>;
 }
 

@@ -10,7 +10,8 @@ The tracked Vinext/React/Cloudflare application is the production implementation
 
 ## Live and source locations
 
-- Live PWA: `https://yil-golden-jubilee-ops.tech-sinisters.chatgpt.site/`
+- Live PWA (confirmed working, 2026-08-22 — owner signed in successfully from their phone): `https://yil-golden-jubilee-event-ops.yil-jubilee.workers.dev`
+- Previously documented Live PWA URL, unconfirmed as of 2026-08-22 (owner's real login credentials returned "Employee number or PIN is incorrect" against it — may be a stale/separate deployment, not yet investigated further): `https://yil-golden-jubilee-ops.tech-sinisters.chatgpt.site/`
 - Human-editable test Master: `https://docs.google.com/spreadsheets/d/1CgnFt9wqh7Gsa8iu15npyXe42SgPkDrqxyiArRc5xgQ/edit`
 - GitHub: `https://github.com/fwddeploy/yuken_50_years-.git`
 - Cloudflare Sites project ID: `appgprj_6a87f20d2f9c81919927bc602960d9f0`
