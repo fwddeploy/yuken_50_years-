@@ -135,3 +135,22 @@
 .stopLock{width:44px;height:46px}
 @media(max-width:760px){.jobRow{min-height:52px}.jobMain{min-height:52px}.jobCopy strong{font-size:13.5px}.ocChip{min-width:32px;min-height:32px;font-size:12px}}
 .jobSheet>header>.sheetBack{width:auto;height:auto;min-height:40px;display:inline-flex;align-items:center;gap:4px;border:0;border-radius:8px;background:transparent;padding:0 8px;color:var(--gold-300);font-size:15px;font-weight:850;white-space:nowrap}
+
+/* ============================================================
+   Module 3 — consistent safe-area-inset handling. The fixed header
+   and bottom tab bar previously ignored the top/bottom insets, so
+   content could sit under a notch or the home-indicator bar; the
+   login panel already handled this correctly and is the pattern
+   followed here. env() resolves to 0px on devices without an inset,
+   so this is a no-op there.
+   ============================================================ */
+:root{--safe-top:env(safe-area-inset-top,0px);--safe-bottom:env(safe-area-inset-bottom,0px)}
+.eventHeader{height:auto;min-height:76px;padding-top:var(--safe-top)}
+.committeeStrip{top:calc(76px + var(--safe-top))}
+.eventTabs{padding-bottom:var(--safe-bottom)}
+@media(max-width:760px){
+  .eventHeader{min-height:62px}
+  .committeeStrip{top:calc(62px + var(--safe-top))}
+  .eventBody{padding-bottom:calc(92px + var(--safe-bottom))}
+  .toast{bottom:calc(74px + var(--safe-bottom))}
+}
