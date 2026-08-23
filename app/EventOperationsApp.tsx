@@ -322,15 +322,13 @@ function SectionCard({ section, jobs, open }: { section: typeof previewSections[
 
 function SectionDetail({ section, jobs, user, back, openJob, toggle }: { section: typeof previewSections[number]; jobs: EventJob[]; user: EventUser; back: () => void; openJob: (id: string) => void; toggle: (job: EventJob, field: "organised" | "complete") => void }) {
   const [venue, setVenue] = useState<"malur" | "taj">("malur");
-  const completed = jobs.filter(job => job.complete).length;
   const visible = jobs.filter(job => job.venue === venue || job.venue === "general");
   const mine = visible.filter(job => job.ownerIds.includes(user.id));
   const rest = visible.filter(job => !job.ownerIds.includes(user.id));
-  const count = (v: "malur" | "taj") => jobs.filter(job => job.venue === v || job.venue === "general").length;
-  return <><button className="inlineBack" onClick={back}>‹ Planning activity</button><section className="sectionDetailHero"><span>{section.number}</span><div><p className="eyebrow">Planning activity</p><h1>{section.heading}</h1><small>{completed}/{jobs.length} complete</small></div></section>
-    <div className="eventSwitch sectionEventSwitch" role="group" aria-label="Choose the evening"><button className={venue === "malur" ? "active" : ""} onClick={() => setVenue("malur")}><b>15</b><span>November<small>YIL Malur · {count("malur")} activities</small></span></button><button className={venue === "taj" ? "active" : ""} onClick={() => setVenue("taj")}><b>18</b><span>November<small>Taj West End · {count("taj")} activities</small></span></button></div>
+  return <><button className="inlineBack" onClick={back}>‹ Planning activity</button><section className="sectionDetailHero"><div><p className="eyebrow">Planning activity</p><h1>{section.heading}</h1></div></section>
+    <div className="eventSwitch sectionEventSwitch" role="group" aria-label="Choose the evening"><button className={venue === "malur" ? "active" : ""} onClick={() => setVenue("malur")}><b>15</b><span>November<small>YIL Malur</small></span></button><button className={venue === "taj" ? "active" : ""} onClick={() => setVenue("taj")}><b>18</b><span>November<small>Taj West End</small></span></button></div>
     {mine.length > 0 && <><div className="sectionTitle prototypeSectionTitle"><div><p className="eyebrow">Assigned to you</p></div><span>{mine.filter(job => job.complete).length}/{mine.length}</span></div><div className="sectionCard sectionDetailCard"><div>{mine.map(job => <JobRow key={job.id} job={job} open={() => openJob(job.id)} canEdit={canEditJob(user, job.ownerIds)} toggle={field => toggle(job, field)} />)}</div></div></>}
-    {mine.length > 0 && rest.length > 0 && <div className="sectionTitle prototypeSectionTitle"><div><p className="eyebrow">Everything else in this section</p></div><span>{rest.filter(job => job.complete).length}/{rest.length}</span></div>}
+    {rest.length > 0 && <div className="sectionTitle prototypeSectionTitle"><div><p className="eyebrow">Everything else in this section</p></div><span>{rest.filter(job => job.complete).length}/{rest.length}</span></div>}
     {rest.length > 0 && <div className="sectionCard sectionDetailCard"><div>{rest.map(job => <JobRow key={job.id} job={job} open={() => openJob(job.id)} canEdit={canEditJob(user, job.ownerIds)} toggle={field => toggle(job, field)} />)}</div></div>}
     {!visible.length && <div className="emptyState">Nothing in this section for that evening.</div>}
     <SourceNote /></>;
