@@ -355,3 +355,17 @@ export const messageRecipients = sqliteTable("message_recipients", {
   uniqueIndex("uidx_message_recipient_batch_guest").on(table.batchId, table.guestId),
   index("idx_message_recipients_status").on(table.batchId, table.status),
 ]);
+
+export const syncRuns = sqliteTable("sync_runs", {
+  id: text("id").primaryKey(),
+  triggerSource: text("trigger_source", { enum: ["cron", "manual"] }).notNull(),
+  startedAt: text("started_at").notNull(),
+  finishedAt: text("finished_at"),
+  outcome: text("outcome").notNull(),
+  summary: text("summary"),
+  contentHash: text("content_hash"),
+  appliedCount: integer("applied_count"),
+  archivedPending: integer("archived_pending"),
+  waitingCount: integer("waiting_count").default(0),
+  detailJson: text("detail_json"),
+}, table => [index("sync_runs_started_at_idx").on(table.startedAt)]);
