@@ -96,8 +96,8 @@ test("phone navigation, narrow touch targets and Master archive reporting stay w
     assert.match(source, /popstate/u);
   }
   assert.match(eventUi, /replaceState/u);
-  assert.match(guestCss, /agendaEditRow>button\{width:44px;height:48px/u);
-  assert.match(guestCss, /stopEditRow>button\{width:44px;height:46px/u);
+  assert.match(guestCss, /agendaEditRow>button\{width:44px;height:50px/u);
+  assert.match(guestCss, /stopEditRow>button\{width:44px;height:50px/u);
   assert.match(importRoute, /preview\.impacts\.reduce/u);
 });
 
