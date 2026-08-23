@@ -5,9 +5,9 @@
 *{box-sizing:border-box}html{min-height:100%;background:var(--navy-950)}body{margin:0;min-height:100%;color:var(--ink);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif;background:var(--navy-950)}button,input,select,textarea{font:inherit}button{cursor:pointer}button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible{outline:3px solid var(--blue-500);outline-offset:3px}
 .loginPage{min-height:100svh;display:grid;place-items:center;padding:16px;background:#0c1723}
 .loginShell{width:min(430px,100%);height:min(860px,calc(100svh - 32px));min-height:560px;display:flex;flex-direction:column;overflow:hidden;border:1px solid rgba(225,199,127,.32);border-radius:36px;background:linear-gradient(180deg,#071e36,#06192c);box-shadow:0 28px 78px rgba(0,0,0,.38)}
-.loginArtwork{position:relative;flex:1 1 60%;min-height:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;margin:10px 10px 0;overflow:hidden;border:1px solid rgba(240,214,139,.8);border-radius:26px 26px 16px 16px;background:linear-gradient(135deg,var(--navy-800),var(--navy-950));box-shadow:0 14px 30px rgba(0,0,0,.22)}
-.loginArtwork img{width:100%;flex:1 1 auto;min-height:0;display:block;object-fit:contain;padding:12px 16% 0}
-.loginTagline{flex:0 0 auto;margin:0;padding:0 22px 16px;color:var(--blue-500);text-align:center;font-size:clamp(12px,3.4vw,14px);font-weight:800;letter-spacing:.02em;line-height:1.4}
+.loginArtwork{position:relative;flex:1 1 60%;min-height:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;margin:10px 10px 0;overflow:hidden;border:1px solid rgba(240,214,139,.8);border-radius:26px 26px 16px 16px;background:linear-gradient(160deg,var(--navy-900),var(--navy-950));box-shadow:0 14px 30px rgba(0,0,0,.22)}
+.loginArtwork img{width:100%;flex:1 1 auto;min-height:0;display:block;object-fit:contain;padding:20px 13% 4px}
+.loginTagline{flex:0 0 auto;margin:0;padding:0 26px 24px;color:var(--blue-500);text-align:center;font-size:clamp(12px,3.4vw,14px);font-weight:800;letter-spacing:.02em;line-height:1.4}
 .loginPanel{flex:0 0 auto;min-height:0;padding:10px 18px calc(14px + env(safe-area-inset-bottom));color:var(--white)}
 .loginPanel .loginMark{margin-bottom:6px;color:var(--blue-500);font-size:11px}
 .loginPanel .loginMark b{color:var(--gold-300);font:20px Georgia,serif}
