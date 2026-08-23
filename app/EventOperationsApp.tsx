@@ -347,16 +347,20 @@ function JobRow({ job, open, canEdit, toggle }: { job: EventJob; open: () => voi
 function UpdatesView({ jobs, query, ownerFilter, openJob }: { jobs: EventJob[]; query: string; ownerFilter: string | null; openJob: (id: string) => void }) {
   const [person, setPerson] = useState("all");
   const [day, setDay] = useState("all");
+  const [venueFilter, setVenueFilter] = useState<"all" | "malur" | "taj">("all");
   const [dayOpen, setDayOpen] = useState(false);
   const [personOpen, setPersonOpen] = useState(false);
+  const [venueOpen, setVenueOpen] = useState(false);
   const authors = [...new Set(jobs.flatMap(job => job.updates.map(update => update.author)))].sort();
   const term = query.trim().toLocaleLowerCase("en-IN");
-  const updates = jobs.filter(job => !ownerFilter || job.ownerIds.includes(ownerFilter)).flatMap(job => job.updates.map(update => ({ ...update, job }))).filter(update => (person === "all" || update.author === person) && matchesUpdateDay(update.at, day) && (!term || `${update.author} ${update.message} ${update.job.title}`.toLocaleLowerCase("en-IN").includes(term)));
+  const updates = jobs.filter(job => !ownerFilter || job.ownerIds.includes(ownerFilter)).flatMap(job => job.updates.map(update => ({ ...update, job }))).filter(update => (person === "all" || update.author === person) && (venueFilter === "all" || update.job.venue === venueFilter || update.job.venue === "general") && matchesUpdateDay(update.at, day) && (!term || `${update.author} ${update.message} ${update.job.title}`.toLocaleLowerCase("en-IN").includes(term)));
   const grouped = updates.reduce<Record<string, typeof updates>>((result, update) => { (result[updateDayLabel(update.at)] ||= []).push(update); return result; }, {});
-  const filtering = day !== "all" || person !== "all";
+  const filtering = day !== "all" || person !== "all" || venueFilter !== "all";
   const dayOptions = [["all", "Everything"], ["today", "Today"], ["yesterday", "Yesterday"], ["week", "Last 7 days"]] as const;
   const dayLabel = dayOptions.find(([id]) => id === day)?.[1] ?? new Date(`${day}T12:00:00`).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" });
-  return <><section className="guestHero staysHero"><div><p className="eyebrow">Across the committee</p><h1>Team updates</h1><p>What everyone has done, newest first. Tap an update to open the activity behind it.</p></div></section>
+  const venueOptions = [["all", "Both evenings"], ["malur", "YIL Malur"], ["taj", "Taj West End"]] as const;
+  const venueLabel = venueOptions.find(([id]) => id === venueFilter)?.[1];
+  return <><section className="guestHero staysHero updatesHero"><div><p className="eyebrow">Across the committee</p><h1>Team updates</h1><p>What everyone has done, newest first. Tap an update to open the activity behind it.</p></div></section>
     <div className="updatesPickers">
       <details className="pickerChip" open={dayOpen} onToggle={event => setDayOpen(event.currentTarget.open)}>
         <summary aria-label="Pick a day"><span>Day</span><b>{dayLabel}</b><i>▾</i></summary>
@@ -372,7 +376,13 @@ function UpdatesView({ jobs, query, ownerFilter, openJob }: { jobs: EventJob[]; 
           {authors.map(author => <button key={author} className={person === author ? "active" : ""} onClick={() => { setPerson(author); setPersonOpen(false); }}>{author}</button>)}
         </div>
       </details>
-      {filtering && <button className="updatesClear" onClick={() => { setDay("all"); setPerson("all"); }}>Show everything</button>}
+      <details className="pickerChip" open={venueOpen} onToggle={event => setVenueOpen(event.currentTarget.open)}>
+        <summary aria-label="Pick an evening"><span>Evening</span><b>{venueLabel}</b><i>▾</i></summary>
+        <div className="pickerPanel">
+          {venueOptions.map(([id, label]) => <button key={id} className={venueFilter === id ? "active" : ""} onClick={() => { setVenueFilter(id); setVenueOpen(false); }}>{label}</button>)}
+        </div>
+      </details>
+      {filtering && <button className="updatesClear" onClick={() => { setDay("all"); setPerson("all"); setVenueFilter("all"); }}>Show everything</button>}
     </div>
     {updates.length ? Object.entries(grouped).map(([label, items]) => <section className="updateDay" key={label}><header><b>{label}</b></header><div className="updateList">{items.map(update => <button key={update.id} onClick={() => openJob(update.job.id)}><span className="initialBadge">{initialsFor(update.author)}</span><span><strong>{update.author}</strong><small>{updateTimeLabel(update.at)}</small><p>{update.message}</p>{update.attachments.length > 0 && <em>▧ {update.attachments.length} photo/video</em>}<small>{update.job.title}</small></span><i>›</i></button>)}</div></section>) : <div className="emptyState">Nothing for that. Try Everything, or Everyone.</div>}<SourceNote /></>;
 }
