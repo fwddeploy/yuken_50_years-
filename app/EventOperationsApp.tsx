@@ -266,6 +266,7 @@ function LoginScreen({ submit, error, busy, preview }: { submit: (event: FormEve
         <img src="/golden-jubilee-cover.jpg" alt="Yuken India Limited — 50 years, five decades of friendly and intelligent service" fetchPriority="high" decoding="async" />
       </div>
       <div className="loginPanel">
+        <span className="miniMark loginMark">YIL <b>50</b></span>
         <p className="loginInstruction">Enter your YIL employee number and PIN.</p>
         <form className="authLoginForm" onSubmit={submit}>
           <label htmlFor="employeeNumber"><span>Employee number</span></label>
