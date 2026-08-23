@@ -17,7 +17,7 @@ test("server renders the product-specific employee sign-in", async () => {
   const html = await response.text();
   assert.match(html, /<title>YIL Golden Jubilee — Event Operations<\/title>/i);
   for (const copy of ["Five decades of friendly and intelligent service", "Employee number", "Employee PIN", "Sign in"]) assert.match(html, new RegExp(copy, "i"));
-  assert.match(html, /golden-jubilee-cover\.jpg/i);
+  assert.match(html, /yuken-50-badge\.webp/i);
   assert.doesNotMatch(html, /codex-preview|SkeletonPreview|Your site is taking shape/);
   assert.doesNotMatch(html, /Open local Event Work preview/);
 });

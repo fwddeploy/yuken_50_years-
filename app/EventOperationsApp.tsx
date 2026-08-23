@@ -260,10 +260,12 @@ function LoginScreen({ submit, error, busy, preview }: { submit: (event: FormEve
   return <main className="loginPage">
     <section className="loginShell" aria-label="Yuken India Golden Jubilee event team sign in">
       <div className="loginArtwork">
-        {/* Direct static image: the 55KB JPEG needs no runtime optimiser, and
-            fetchpriority=high makes it part of the first paint. */}
+        {/* Same cover photo as before, cropped to trim the dead space above the
+            panel (39KB WebP, no runtime optimiser needed) — object-fit:contain
+            lets the artwork panel's own background provide even top/bottom
+            margin instead of the photo's own pixels ending at zero margin. */}
         {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src="/golden-jubilee-cover.jpg" alt="Yuken India Limited — 50 years, five decades of friendly and intelligent service" fetchPriority="high" decoding="async" />
+        <img src="/yuken-50-badge.webp" alt="Yuken India Limited — 50 years, five decades of friendly and intelligent service" fetchPriority="high" decoding="async" />
       </div>
       <div className="loginPanel">
         <span className="miniMark loginMark">YIL <b>50</b></span>
