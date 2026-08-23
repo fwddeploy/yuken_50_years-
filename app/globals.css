@@ -141,11 +141,12 @@
    so this is a no-op there.
    ============================================================ */
 :root{--safe-top:env(safe-area-inset-top,0px);--safe-bottom:env(safe-area-inset-bottom,0px)}
-.eventHeader{height:auto;min-height:76px;padding-top:var(--safe-top)}
+.eventHeader{height:auto;min-height:calc(76px + var(--safe-top));padding-top:var(--safe-top)}
 .committeeStrip{top:calc(76px + var(--safe-top))}
 .eventTabs{padding-bottom:var(--safe-bottom)}
+.eventBody{padding-bottom:calc(110px + var(--safe-bottom))}
 @media(max-width:760px){
-  .eventHeader{min-height:62px}
+  .eventHeader{min-height:calc(62px + var(--safe-top))}
   .committeeStrip{top:calc(62px + var(--safe-top))}
   .eventBody{padding-bottom:calc(92px + var(--safe-bottom))}
   .toast{bottom:calc(74px + var(--safe-bottom))}
