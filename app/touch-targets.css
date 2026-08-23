@@ -59,7 +59,7 @@
   }
 
   .stopEditRow {
-    grid-template-columns: 28px 84px 1fr 44px;
+    grid-template-columns: 28px 88px 1fr 44px;
   }
 
   .stopEditRow > button {
