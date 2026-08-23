@@ -98,7 +98,7 @@
 .quietState b{font-size:16px}.quietState span{font-size:13px}
 .sheetBody dd{font-size:14px}.sheetBody dt{font-size:10px}
 .checkRow b{font-size:13px}.checkRow small{font-size:11px}
-.filterRow label>span,.recordForm label>span{font-size:12px}
+.recordForm label>span{font-size:12px}
 .pickerChip summary>b{font-size:14px}.pickerChip summary>span{font-size:9px}
 .pickerPanel button{font-size:14px}
 .messagePreview textarea{font-size:13px}
@@ -108,7 +108,7 @@
 .sendSummary span{font-size:15px}.languageBreakdown span{font-size:13px}
 .preflightPanel li span{font-size:12px}.providerNote{font-size:12px}
 .guestHero p:last-child{font-size:15px}
-.inviteCardTap>span{font-size:13px}.inviteCard figcaption{font-size:13px}
+.inviteCardTap>span{font-size:13px}
 .eventSwitch span{font-size:14px}.eventSwitch small{font-size:12px}
 .choiceRow button{font-size:13px}
 .updatesClear{font-size:13px}
@@ -195,9 +195,9 @@
 .updatesHero p:last-child{font-size:12px;line-height:1.4}
 .metricGrid.budgetMetrics{margin-top:14px}
 .pickerChip summary{min-height:44px;padding:6px 12px}
-.mineSegments button{min-height:48px}
+
 .mineAddDate{min-height:44px;border-radius:10px}
-.eventSwitch button{min-height:60px;padding:8px 14px}
+
 @media(max-width:760px){.eventSwitch button{min-height:52px;padding:7px 11px}}
 
 /* ============================================================
@@ -260,3 +260,22 @@
 .headerBrand small{font-size:10px}
 .committeeStrip>span{font-size:10px}
 .venueHero p{font-size:11px;letter-spacing:.13em}
+
+/* ============================================================
+   Guest-section audit — type-floor raises for the guest tabs and
+   sheets, matching the Event convention (12px floor for legible
+   text; numeric/uppercase micro-badges stay 10-11px by design:
+   travelMode, stopNumber, rsvpPreviewTag, count bubbles).
+   ============================================================ */
+.mineLineMain span small{font-size:12px}
+.mineTravelList button>span:nth-child(2) small{font-size:12px}
+.messagePreview p{font-size:12px}
+.messagePreview header span{font-size:10px}
+.travelCard header small{font-size:12px}
+.mineDayHeader span{font-size:12px}
+.mineAllDay>header>span{font-size:12px}
+.attentionPill,.readyPill{font-size:12px}
+.inlineWarning,.inlineReady{font-size:12px}
+.templateAccessBar span small{font-size:12px}
+.categoryPills span{font-size:12px}
+.modeChoice>span{font-size:12px}
