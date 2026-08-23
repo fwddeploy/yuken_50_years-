@@ -4,12 +4,6 @@ export const MASTER_SHEETS = {
   jobs: "3 Jobs",
 } as const;
 
-export const MASTER_HEADERS = {
-  people: ["Short letters", "Full name", "What they look after", "Number they sign in with", "Phone", "On the core committee", "Remove this person?"],
-  sections: ["No.", "Heading", "Remove this heading?"],
-  jobs: ["The job", "Under which heading", "Who is responsible", "Where", "FINISH BY", "Notes"],
-} as const;
-
 export type MasterPerson = {
   recordId: string;
   initials: string;
@@ -82,11 +76,23 @@ export function validateMasterPayload(payload: MasterPayload): ValidatedMaster {
   const employeeNumbers = new Set<string>();
   const sectionsByHeading = new Map<string, MasterSection>();
   const sectionNumbers = new Set<number>();
+  const personIds = new Set<string>();
+  const sectionIds = new Set<string>();
+  const jobIds = new Set<string>();
 
+  // Reference checks and uniqueness run over ACTIVE rows only. Rows marked
+  // removed are on their way out — apply ignores them entirely, so validating
+  // them (or resolving a job's heading against them) would either block the
+  // sync with noise or, worse, let a job that points at a removed section pass
+  // validation and then vanish silently at apply time.
   for (const person of payload.people) {
+    if (person.removed) continue;
     const initials = clean(person.initials).toUpperCase();
     const employeeNumber = clean(person.employeeNumber);
-    if (!clean(person.recordId)) issues.push(issue(MASTER_SHEETS.people, "row", "recordId", "Permanent record ID is missing."));
+    const recordId = clean(person.recordId);
+    if (!recordId) issues.push(issue(MASTER_SHEETS.people, "row", "recordId", "Permanent record ID is missing."));
+    else if (personIds.has(recordId)) issues.push(issue(MASTER_SHEETS.people, recordId, "recordId", "Permanent record ID is duplicated — was a row copy-pasted?"));
+    else personIds.add(recordId);
     if (!initials) issues.push(issue(MASTER_SHEETS.people, person.recordId, "initials", "Short letters are required."));
     else if (peopleByInitials.has(initials)) issues.push(issue(MASTER_SHEETS.people, person.recordId, "initials", `Short letters ${initials} are duplicated.`));
     else peopleByInitials.set(initials, person);
@@ -97,8 +103,12 @@ export function validateMasterPayload(payload: MasterPayload): ValidatedMaster {
   }
 
   for (const section of payload.sections) {
+    if (section.removed) continue;
     const heading = clean(section.heading).toLocaleLowerCase("en-IN");
-    if (!clean(section.recordId)) issues.push(issue(MASTER_SHEETS.sections, "row", "recordId", "Permanent record ID is missing."));
+    const recordId = clean(section.recordId);
+    if (!recordId) issues.push(issue(MASTER_SHEETS.sections, "row", "recordId", "Permanent record ID is missing."));
+    else if (sectionIds.has(recordId)) issues.push(issue(MASTER_SHEETS.sections, recordId, "recordId", "Permanent record ID is duplicated — was a row copy-pasted?"));
+    else sectionIds.add(recordId);
     if (!Number.isInteger(section.number) || section.number < 1) issues.push(issue(MASTER_SHEETS.sections, section.recordId, "number", "Section number must be a positive whole number."));
     else if (sectionNumbers.has(section.number)) issues.push(issue(MASTER_SHEETS.sections, section.recordId, "number", "Section number is duplicated."));
     else sectionNumbers.add(section.number);
@@ -108,12 +118,16 @@ export function validateMasterPayload(payload: MasterPayload): ValidatedMaster {
   }
 
   for (const job of payload.jobs) {
-    if (!clean(job.recordId)) issues.push(issue(MASTER_SHEETS.jobs, "row", "recordId", "Permanent record ID is missing."));
+    if (job.removed) continue;
+    const recordId = clean(job.recordId);
+    if (!recordId) issues.push(issue(MASTER_SHEETS.jobs, "row", "recordId", "Permanent record ID is missing."));
+    else if (jobIds.has(recordId)) issues.push(issue(MASTER_SHEETS.jobs, recordId, "recordId", "Permanent record ID is duplicated — was a row copy-pasted?"));
+    else jobIds.add(recordId);
     if (!clean(job.title)) issues.push(issue(MASTER_SHEETS.jobs, job.recordId, "title", "The job is required."));
-    if (!sectionsByHeading.has(clean(job.sectionHeading).toLocaleLowerCase("en-IN"))) issues.push(issue(MASTER_SHEETS.jobs, job.recordId, "sectionHeading", "The selected heading does not exist in 2 Sections."));
+    if (!sectionsByHeading.has(clean(job.sectionHeading).toLocaleLowerCase("en-IN"))) issues.push(issue(MASTER_SHEETS.jobs, job.recordId, "sectionHeading", "The selected heading does not exist in 2 Sections (or its row is marked removed)."));
     if (!job.responsibleInitials.length) issues.push(issue(MASTER_SHEETS.jobs, job.recordId, "responsibleInitials", "A responsible person is required."));
     for (const initials of job.responsibleInitials) {
-      if (!peopleByInitials.has(clean(initials).toUpperCase())) issues.push(issue(MASTER_SHEETS.jobs, job.recordId, "responsibleInitials", `${initials} does not exist in 1 People.`));
+      if (!peopleByInitials.has(clean(initials).toUpperCase())) issues.push(issue(MASTER_SHEETS.jobs, job.recordId, "responsibleInitials", `${initials} does not exist in 1 People (or that row is marked removed).`));
     }
     const venues = venuesFor(job.location);
     if (!venues.length) issues.push(issue(MASTER_SHEETS.jobs, job.recordId, "location", `Location “${job.location}” is not recognised.`));

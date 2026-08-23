@@ -52,17 +52,3 @@
     height: 44px;
   }
 }
-
-@media (max-width: 380px) {
-  .agendaEditRow {
-    grid-template-columns: 92px 1fr 44px;
-  }
-
-  .stopEditRow {
-    grid-template-columns: 28px 88px 1fr 44px;
-  }
-
-  .stopEditRow > button {
-    width: 44px;
-  }
-}

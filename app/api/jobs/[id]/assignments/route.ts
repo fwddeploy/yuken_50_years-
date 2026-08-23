@@ -1,13 +1,14 @@
 import { and, eq, inArray } from "drizzle-orm";
 import { getDb } from "../../../../../db";
 import { jobAssignments, jobs, people } from "../../../../../db/schema";
+import { canReassignJob } from "../../../../../src/domain/master-contract";
 import { authenticateRequest } from "../../../../../src/server/session";
 import { getRuntimeEnv } from "../../../../../src/server/runtime-env";
 
 export async function PUT(request: Request, context: { params: Promise<{ id: string }> }) {
   const user = await authenticateRequest(request);
   if (!user) return Response.json({ error: "Sign in again." }, { status: 401 });
-  if (!user.isCore) return Response.json({ error: "Only the core committee can assign or reassign work." }, { status: 403 });
+  if (!canReassignJob(user)) return Response.json({ error: "Only the core committee can assign or reassign work." }, { status: 403 });
   const { id } = await context.params;
   const body = await request.json() as { personIds?: string[] };
   const personIds = [...new Set((body.personIds ?? []).map(value => value.trim()).filter(Boolean))];

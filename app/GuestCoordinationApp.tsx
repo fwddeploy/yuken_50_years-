@@ -543,10 +543,10 @@ function AgendaSheet({ group, date, close, save }: { group: GuestGroup; date: st
   return <Sheet title="Edit agenda" subtitle={`${group.name} · ${formatDate(date)}`} close={close}><div className="agendaEditor">{items.map((item, index) => <div className="agendaEditRow" key={item.id}><label><span>Time</span><input type="time" value={item.time} onChange={event => setItems(value => value.map(row => row.id === item.id ? { ...row, time: event.target.value } : row))} required /></label><label><span>Agenda item</span><input value={item.title} onChange={event => setItems(value => value.map(row => row.id === item.id ? { ...row, title: event.target.value } : row))} placeholder="What happens?" maxLength={200} required /></label><button aria-label={`Remove agenda line ${index + 1}`} onClick={() => setItems(value => value.filter(row => row.id !== item.id))}>×</button></div>)}</div><button className="secondaryAction addLineAction" onClick={addLine}>＋ Add agenda line</button><button className="primaryAction sheetAction" disabled={items.some(item => !item.time || !item.title.trim())} onClick={() => save(items)}>Save agenda</button></Sheet>;
 }
 
-type TemplateUi = Omit<MessageTemplate, "approved"> & { approved: boolean; status?: "draft" | "approved" | "retired" };
+type TemplateUi = Omit<MessageTemplate, "approved"> & { approved: boolean };
 function TemplateSheet({ preview, close, notify }: { preview: boolean; close: () => void; notify: (message: string) => void }) {
   const [purpose, setPurpose] = useState<MessagePurpose>("invitation");
-  const [templates, setTemplates] = useState<TemplateUi[]>(() => preview ? DEFAULT_MESSAGE_TEMPLATES.map(template => ({ ...template, status: "draft" })) : []);
+  const [templates, setTemplates] = useState<TemplateUi[]>(() => preview ? DEFAULT_MESSAGE_TEMPLATES.map(template => ({ ...template })) : []);
   const [loading, setLoading] = useState(!preview);
   useEffect(() => {
     if (preview) return;

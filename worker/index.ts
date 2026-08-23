@@ -28,10 +28,23 @@ interface ExecutionContext {
 const worker = {
   /** Cron trigger (configured at deploy time): runs the Master Sheet
    *  auto-sync by calling the app's own authenticated route, so all sync
-   *  logic lives in one place and can also be triggered manually. */
+   *  logic lives in one place and can also be triggered manually. Failures
+   *  are written to sync_runs — a misconfigured cron must never be silent. */
   async scheduled(_event: unknown, env: Env & { SYNC_CRON_SECRET?: string }, ctx: ExecutionContext): Promise<void> {
-    const request = new Request("https://cron.internal/api/master/auto-sync", { method: "POST", headers: { "x-cron-key": env.SYNC_CRON_SECRET ?? "" } });
-    ctx.waitUntil(worker.fetch(request, env, ctx));
+    const logCronFailure = (summary: string) => {
+      const now = new Date().toISOString();
+      return env.DB.prepare("INSERT INTO sync_runs (id, trigger_source, started_at, finished_at, outcome, summary) VALUES (?, 'cron', ?, ?, 'error', ?)")
+        .bind(crypto.randomUUID(), now, now, summary.slice(0, 300)).run().then(() => undefined, () => undefined);
+    };
+    if (!env.SYNC_CRON_SECRET?.trim()) {
+      ctx.waitUntil(logCronFailure("SYNC_CRON_SECRET is not configured on the worker — the scheduled sync cannot authenticate."));
+      return;
+    }
+    const request = new Request("https://cron.internal/api/master/auto-sync", { method: "POST", headers: { "x-cron-key": env.SYNC_CRON_SECRET } });
+    ctx.waitUntil(worker.fetch(request, env, ctx).then(
+      response => response.ok ? undefined : logCronFailure(`The scheduled sync request failed with HTTP ${response.status}.`),
+      error => logCronFailure(`The scheduled sync request threw: ${error instanceof Error ? error.message : "unknown error"}.`),
+    ));
   },
 
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
