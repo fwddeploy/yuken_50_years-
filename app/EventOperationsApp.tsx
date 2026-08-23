@@ -80,7 +80,7 @@ export default function EventOperationsApp() {
   useEffect(() => {
     window.history.replaceState({ ...(window.history.state ?? {}), yilApp: true, screen: "login", eventTab: "home" }, "");
     function restoreFromHistory(event: PopStateEvent) {
-      const state = event.state as { yilApp?: boolean; screen?: Screen; eventTab?: EventTab; sectionId?: string; yilSheet?: boolean } | null;
+      const state = event.state as { yilApp?: boolean; screen?: Screen; eventTab?: EventTab; sectionId?: string; yilSheet?: boolean | number } | null;
       if (!state?.yilApp) return;
       if (!userRef.current && state.screen !== "login") {
         window.history.replaceState({ yilApp: true, screen: "login", eventTab: "home" }, "");
@@ -88,6 +88,11 @@ export default function EventOperationsApp() {
       }
       if (state.screen && (["login", "pin", "choose", "event", "guest"] as Screen[]).includes(state.screen)) setScreen(state.screen);
       if (state.eventTab && (["home", "updates", "malur", "taj", "budget"] as EventTab[]).includes(state.eventTab)) setTab(state.eventTab);
+      // Landing on a sheet-layer entry (yilSheet depth > 0): the useSheetHistory
+      // hooks close exactly the layers above this depth themselves — clearing
+      // everything here would collapse stacked sheets in one press.
+      const sheetDepth = typeof state.yilSheet === "number" ? state.yilSheet : state.yilSheet ? 1 : 0;
+      if (sheetDepth > 0) return;
       const nextSection = typeof state.sectionId === "string" ? state.sectionId : null;
       const viewChanged = (state.screen && state.screen !== screenRef.current) || (state.eventTab && state.eventTab !== tabRef.current) || nextSection !== sectionRef.current;
       setSelectedJobId(null); setSelectedUpdateId(null); setBudgetOpen(false); setEventSearchOpen(false); setSelectedSectionId(nextSection);
@@ -97,26 +102,37 @@ export default function EventOperationsApp() {
     return () => window.removeEventListener("popstate", restoreFromHistory);
   }, []);
 
+  /** True when any sheet-layer history entry is on top — the app's own event
+   *  sheets, the search panel, or a guest-side sheet. Navigating away must then
+   *  replace (not push) and strip yilSheet, so the unmounting layers' cleanup
+   *  does not history.back() over the entry we just wrote. */
+  function anySheetLayerOpen() {
+    const depth = (window.history.state as { yilSheet?: boolean | number } | null)?.yilSheet;
+    return Boolean(selectedJobId) || budgetOpen || eventSearchOpen || (typeof depth === "number" ? depth > 0 : Boolean(depth));
+  }
+
   function navigateScreen(next: Screen, replace = false) {
     const state: Record<string, unknown> = { ...(window.history.state ?? {}), yilApp: true, screen: next, eventTab: tab };
     if (next === "guest") state.guestTab = "mine"; else delete state.guestTab;
-    const closingSheet = Boolean(selectedJobId) || budgetOpen;
+    delete state.sectionId;
+    const closingSheet = anySheetLayerOpen();
     if (closingSheet) delete state.yilSheet;
     if (replace || closingSheet) window.history.replaceState(state, ""); else window.history.pushState(state, "");
     setSelectedJobId(null); setSelectedUpdateId(null); setSelectedSectionId(null); setBudgetOpen(false); setEventSearchOpen(false); setScreen(next); window.scrollTo(0, 0);
   }
 
   function openSectionWithHistory(id: string) {
-    const closingSheet = Boolean(selectedJobId) || budgetOpen;
+    const closingSheet = anySheetLayerOpen();
     const state: Record<string, unknown> = { ...(window.history.state ?? {}), yilApp: true, screen: "event" as const, eventTab: tab, sectionId: id };
     if (closingSheet) delete state.yilSheet;
     if (closingSheet) window.history.replaceState(state, ""); else window.history.pushState(state, "");
-    setSelectedJobId(null); setSelectedUpdateId(null); setBudgetOpen(false); setSelectedSectionId(id); window.scrollTo(0, 0);
+    setSelectedJobId(null); setSelectedUpdateId(null); setBudgetOpen(false); setEventSearchOpen(false); setSelectedSectionId(id); window.scrollTo(0, 0);
   }
 
   function navigateEventTab(next: EventTab) {
-    const closingSheet = Boolean(selectedJobId) || budgetOpen;
+    const closingSheet = anySheetLayerOpen();
     const state: Record<string, unknown> = { ...(window.history.state ?? {}), yilApp: true, screen: "event" as const, eventTab: next };
+    delete state.sectionId;
     if (closingSheet) delete state.yilSheet;
     if (closingSheet) window.history.replaceState(state, ""); else window.history.pushState(state, "");
     setSelectedSectionId(null); setEventSearchOpen(false); setSelectedJobId(null); setSelectedUpdateId(null); setBudgetOpen(false); setTab(next); window.scrollTo(0, 0);
@@ -454,7 +470,7 @@ function VenueView({ venue, jobs, user, openJob, toggle }: { venue: "malur" | "t
 function BudgetView({ entries, add }: { entries: EventBudgetEntry[]; add: () => void }) {
   const total = (status: string) => entries.filter(entry => entry.status === status).reduce((sum, entry) => sum + entry.amountPaise, 0) / 100;
   const grouped = entries.reduce<Record<string, EventBudgetEntry[]>>((result, entry) => { (result[entry.category] ||= []).push(entry); return result; }, {});
-  return <><section className="guestHero staysHero"><div><p className="eyebrow">Core committee only</p><h1>Event budget</h1><p>Every planned, approved and paid amount for both evenings, entered here by the committee.</p></div></section><section className="metricGrid budgetMetrics"><article><b>₹{total("planned").toLocaleString("en-IN")}</b><span>planned</span></article><article><b>₹{total("approved").toLocaleString("en-IN")}</b><span>approved</span></article><article><b>₹{total("paid").toLocaleString("en-IN")}</b><span>paid</span></article></section><div className="sectionTitle"><div><p className="eyebrow">Budget activity</p><h2>Budget lines</h2></div><button className="smallAction" onClick={add}>＋ Add entry</button></div>{entries.length ? Object.entries(grouped).map(([category, items]) => <section className="updateDay budgetGroup" key={category}><header><b>{category}</b><span>{items.length}</span></header><div className="budgetList">{items.map(item => <article key={item.id}><span><b>{item.description || item.category}</b><small>{item.vendor || "No vendor yet"}</small></span><strong>₹{(item.amountPaise / 100).toLocaleString("en-IN")}</strong><em className={`budgetStatus ${item.status}`}>{item.status}</em></article>)}</div></section>) : <div className="emptyState">No budget lines yet. Tap ＋ Add entry to record the first amount.</div>}<SourceNote /></>;
+  return <><section className="guestHero staysHero"><div><p className="eyebrow">Core committee only</p><h1>Event budget</h1><p>Every planned, approved and paid amount for both evenings, entered here by the committee.</p></div></section><section className="metricGrid budgetMetrics"><article><b>₹{total("planned").toLocaleString("en-IN")}</b><span>planned</span></article><article><b>₹{total("approved").toLocaleString("en-IN")}</b><span>approved</span></article><article><b>₹{total("paid").toLocaleString("en-IN")}</b><span>paid</span></article></section><div className="sectionTitle prototypeSectionTitle"><div><p className="eyebrow">Budget activity</p><h2>Budget lines</h2></div><button className="smallAction" onClick={add}>＋ Add entry</button></div>{entries.length ? Object.entries(grouped).map(([category, items]) => <section className="updateDay budgetGroup" key={category}><header><b>{category}</b><span>{items.length}</span></header><div className="budgetList">{items.map(item => <article key={item.id}><span><b>{item.description || item.category}</b><small>{item.vendor || "No vendor yet"}</small></span><strong>₹{(item.amountPaise / 100).toLocaleString("en-IN")}</strong><em className={`budgetStatus ${item.status}`}>{item.status}</em></article>)}</div></section>) : <div className="emptyState">No budget lines yet. Tap ＋ Add entry to record the first amount.</div>}<SourceNote /></>;
 }
 
 function BudgetSheet({ jobs, close, save }: { jobs: EventJob[]; close: () => void; save: (entry: Omit<EventBudgetEntry, "id">) => void | Promise<void> }) {

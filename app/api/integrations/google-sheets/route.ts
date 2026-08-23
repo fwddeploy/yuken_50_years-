@@ -1,5 +1,6 @@
 import type { MasterPayload } from "../../../../src/domain/master-contract";
 import { constantTimeEqual } from "../../../../src/security/crypto";
+import { recordManualApply } from "../../../../src/server/auto-sync";
 import { applyMasterPayload, MasterValidationError, previewMasterPayload } from "../../../../src/server/import-master";
 import { baselineGoogleSheetsMaster, fetchGoogleSheetsMaster, flushGoogleSheetOutbox, getGoogleSheetsStatus } from "../../../../src/server/google-sheets";
 import { authenticateRequest } from "../../../../src/server/session";
@@ -26,6 +27,7 @@ export async function POST(request: Request) {
       if (!constantTimeEqual(body.confirmationToken ?? "", preview.confirmationToken)) return Response.json({ error: "The Sheet changed after preview. Check it again before applying.", preview }, { status: 409 });
       const result = await applyMasterPayload(master);
       await baselineGoogleSheetsMaster();
+      await recordManualApply(master, result.applied).catch(() => undefined);
       return Response.json({ status: "Changes applied", ...result, archived: preview.impacts.reduce((sum, item) => sum + item.count, 0) }, { headers: { "Cache-Control": "no-store" } });
     }
     return Response.json({ error: "Choose push, pull-preview or pull-apply." }, { status: 400 });

@@ -10,6 +10,3 @@ export async function mayEditJob(user: { personId: string; isCore: boolean }, jo
   return Boolean(assignment);
 }
 
-export function requireCore(user: { isCore: boolean }) {
-  return user.isCore;
-}
