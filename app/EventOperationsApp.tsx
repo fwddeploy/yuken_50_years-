@@ -36,6 +36,7 @@ export default function EventOperationsApp() {
   const [team, setTeam] = useState<EventTeamMember[]>([]);
   const [budgetOpen, setBudgetOpen] = useState(false);
   const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
+  const [selectedUpdateId, setSelectedUpdateId] = useState<string | null>(null);
   const [selectedSectionId, setSelectedSectionId] = useState<string | null>(null);
   const [eventSearchOpen, setEventSearchOpen] = useState(false);
   const [eventQuery, setEventQuery] = useState("");
@@ -81,13 +82,13 @@ export default function EventOperationsApp() {
       if (!state?.yilApp) return;
       if (!userRef.current && state.screen !== "login") {
         window.history.replaceState({ yilApp: true, screen: "login", eventTab: "home" }, "");
-        setScreen("login"); setTab("home"); setSelectedJobId(null); setBudgetOpen(false); return;
+        setScreen("login"); setTab("home"); setSelectedJobId(null); setSelectedUpdateId(null); setBudgetOpen(false); return;
       }
       if (state.screen && (["login", "pin", "choose", "event", "guest"] as Screen[]).includes(state.screen)) setScreen(state.screen);
       if (state.eventTab && (["home", "updates", "malur", "taj", "budget"] as EventTab[]).includes(state.eventTab)) setTab(state.eventTab);
       const nextSection = typeof state.sectionId === "string" ? state.sectionId : null;
       const viewChanged = (state.screen && state.screen !== screenRef.current) || (state.eventTab && state.eventTab !== tabRef.current) || nextSection !== sectionRef.current;
-      setSelectedJobId(null); setBudgetOpen(false); setEventSearchOpen(false); setSelectedSectionId(nextSection);
+      setSelectedJobId(null); setSelectedUpdateId(null); setBudgetOpen(false); setEventSearchOpen(false); setSelectedSectionId(nextSection);
       if (viewChanged) window.scrollTo(0, 0);
     }
     window.addEventListener("popstate", restoreFromHistory);
@@ -100,7 +101,7 @@ export default function EventOperationsApp() {
     const closingSheet = Boolean(selectedJobId) || budgetOpen;
     if (closingSheet) delete state.yilSheet;
     if (replace || closingSheet) window.history.replaceState(state, ""); else window.history.pushState(state, "");
-    setSelectedJobId(null); setSelectedSectionId(null); setBudgetOpen(false); setEventSearchOpen(false); setScreen(next); window.scrollTo(0, 0);
+    setSelectedJobId(null); setSelectedUpdateId(null); setSelectedSectionId(null); setBudgetOpen(false); setEventSearchOpen(false); setScreen(next); window.scrollTo(0, 0);
   }
 
   function openSectionWithHistory(id: string) {
@@ -108,7 +109,7 @@ export default function EventOperationsApp() {
     const state: Record<string, unknown> = { ...(window.history.state ?? {}), yilApp: true, screen: "event" as const, eventTab: tab, sectionId: id };
     if (closingSheet) delete state.yilSheet;
     if (closingSheet) window.history.replaceState(state, ""); else window.history.pushState(state, "");
-    setSelectedJobId(null); setBudgetOpen(false); setSelectedSectionId(id); window.scrollTo(0, 0);
+    setSelectedJobId(null); setSelectedUpdateId(null); setBudgetOpen(false); setSelectedSectionId(id); window.scrollTo(0, 0);
   }
 
   function navigateEventTab(next: EventTab) {
@@ -116,7 +117,7 @@ export default function EventOperationsApp() {
     const state: Record<string, unknown> = { ...(window.history.state ?? {}), yilApp: true, screen: "event" as const, eventTab: next };
     if (closingSheet) delete state.yilSheet;
     if (closingSheet) window.history.replaceState(state, ""); else window.history.pushState(state, "");
-    setSelectedSectionId(null); setEventSearchOpen(false); setSelectedJobId(null); setBudgetOpen(false); setTab(next); window.scrollTo(0, 0);
+    setSelectedSectionId(null); setEventSearchOpen(false); setSelectedJobId(null); setSelectedUpdateId(null); setBudgetOpen(false); setTab(next); window.scrollTo(0, 0);
   }
 
   useEffect(() => {
@@ -188,7 +189,7 @@ export default function EventOperationsApp() {
       const localAttachments = attachments.map(file => ({ id: crypto.randomUUID(), fileName: file.name, contentType: file.type, sizeBytes: file.size, url: URL.createObjectURL(file) }));
       const local = updateMessage.trim() || attachments.length ? { ...next, updates: [{ id: crypto.randomUUID(), author: user.fullName, message: updateMessage.trim() || `Shared ${attachments.length} attachment${attachments.length === 1 ? "" : "s"}.`, at: "just now", attachments: localAttachments }, ...next.updates] } : next;
       setJobs(items => items.map(item => item.id === local.id ? local : item));
-      setSelectedJobId(null); setToast("Activity updated in this local preview."); return;
+      setSelectedJobId(null); setSelectedUpdateId(null); setToast("Activity updated in this local preview."); return;
     }
     const form = new FormData();
     form.set("organised", String(next.organised)); form.set("complete", String(next.complete)); form.set("blockingNote", next.blockingNote || ""); form.set("updateMessage", updateMessage);
@@ -201,7 +202,7 @@ export default function EventOperationsApp() {
     const snapshot = await snapshotResponse.json() as { jobs?: EventJob[]; error?: string };
     if (!snapshotResponse.ok || !snapshot.jobs) { setToast(snapshot.error || "Activity saved, but the refreshed list could not be loaded."); return; }
     setJobs(snapshot.jobs);
-    setSelectedJobId(null); setToast("Activity saved.");
+    setSelectedJobId(null); setSelectedUpdateId(null); setToast("Activity saved.");
   }
 
   async function quickToggle(job: EventJob, field: "organised" | "complete") {
@@ -237,17 +238,17 @@ export default function EventOperationsApp() {
       {eventSearchOpen && <EventSearch value={eventQuery} change={setEventQuery} close={() => { setEventQuery(""); setEventSearchOpen(false); }} />}
       {!eventDataReady && user.id !== previewUser.id ? <div className="guestLoading" role="status"><span className="miniMark">YIL <b>50</b></span><p>Loading Event Work…</p></div> : <>
       {tab === "home" && (selectedSectionId
-        ? <SectionDetail section={sections.find(section => section.id === selectedSectionId)!} jobs={jobs.filter(job => job.sectionId === selectedSectionId)} user={user} back={() => window.history.back()} openJob={setSelectedJobId} toggle={quickToggle} />
+        ? <SectionDetail section={sections.find(section => section.id === selectedSectionId)!} jobs={jobs.filter(job => job.sectionId === selectedSectionId)} user={user} back={() => window.history.back()} openJob={id => { setSelectedUpdateId(null); setSelectedJobId(id); }} toggle={quickToggle} />
         : <HomeView sections={sections} jobs={jobs} query={eventQuery} ownerFilter={ownerFilter} openSection={openSectionWithHistory} openVenue={navigateEventTab} />)}
-      {tab === "updates" && <UpdatesView jobs={jobs} query={eventQuery} ownerFilter={ownerFilter} openJob={setSelectedJobId} />}
-      {(tab === "malur" || tab === "taj") && <VenueView venue={tab} jobs={jobs} user={user} openJob={setSelectedJobId} toggle={quickToggle} />}
+      {tab === "updates" && <UpdatesView jobs={jobs} query={eventQuery} ownerFilter={ownerFilter} openUpdate={(jobId, updateId) => { setSelectedJobId(jobId); setSelectedUpdateId(updateId); }} />}
+      {(tab === "malur" || tab === "taj") && <VenueView venue={tab} jobs={jobs} user={user} openJob={id => { setSelectedUpdateId(null); setSelectedJobId(id); }} toggle={quickToggle} />}
       {tab === "budget" && <BudgetView entries={budget} add={() => setBudgetOpen(true)} />}
       </>}
     </div>
     <nav className="eventTabs" aria-label="Event Work">
       {tabs.filter(item => !item.core || user.isCore).map(item => <button key={item.id} className={tab === item.id ? "active" : ""} aria-current={tab === item.id ? "page" : undefined} onClick={() => navigateEventTab(item.id)}><span>{item.icon}</span>{item.label}</button>)}
     </nav>
-    {selectedJob && <JobSheet job={selectedJob} user={user} sectionHeading={sections.find(section => section.id === selectedJob.sectionId)?.heading} close={() => setSelectedJobId(null)} save={saveJob} />}
+    {selectedJob && <JobSheet job={selectedJob} user={user} sectionHeading={sections.find(section => section.id === selectedJob.sectionId)?.heading} focusUpdateId={selectedUpdateId} close={() => { setSelectedJobId(null); setSelectedUpdateId(null); }} save={saveJob} />}
     {budgetOpen && <BudgetSheet jobs={jobs} close={() => setBudgetOpen(false)} save={saveBudget} />}
     {toast && <div className="toast" role="status">{toast}</div>}
   </main>;
@@ -344,7 +345,7 @@ function JobRow({ job, open, canEdit, toggle }: { job: EventJob; open: () => voi
   </div>;
 }
 
-function UpdatesView({ jobs, query, ownerFilter, openJob }: { jobs: EventJob[]; query: string; ownerFilter: string | null; openJob: (id: string) => void }) {
+function UpdatesView({ jobs, query, ownerFilter, openUpdate }: { jobs: EventJob[]; query: string; ownerFilter: string | null; openUpdate: (jobId: string, updateId: string) => void }) {
   const [person, setPerson] = useState("all");
   const [day, setDay] = useState("all");
   const [venueFilter, setVenueFilter] = useState<"all" | "malur" | "taj">("all");
@@ -380,7 +381,7 @@ function UpdatesView({ jobs, query, ownerFilter, openJob }: { jobs: EventJob[]; 
       </details>
       {filtering && <button className="updatesClear" onClick={() => { setDay("all"); setPerson("all"); setVenueFilter("all"); }}>Show everything</button>}
     </div>
-    {updates.length ? Object.entries(grouped).map(([label, items]) => <section className="updateDay" key={label}><header><b>{label}</b></header><div className="updateList">{items.map(update => <button key={update.id} onClick={() => openJob(update.job.id)}><span className="initialBadge">{initialsFor(update.author)}</span><span><strong>{update.author}</strong><small>{updateTimeLabel(update.at)}</small><p>{update.message}</p>{update.attachments.length > 0 && <em>▧ {update.attachments.length} photo/video</em>}<small>{update.job.title}</small></span><i>›</i></button>)}</div></section>) : <div className="emptyState">Nothing for that. Try Everything, or Everyone.</div>}<SourceNote /></>;
+    {updates.length ? Object.entries(grouped).map(([label, items]) => <section className="updateDay" key={label}><header><b>{label}</b></header><div className="updateList">{items.map(update => <button key={update.id} onClick={() => openUpdate(update.job.id, update.id)}><span className="initialBadge">{initialsFor(update.author)}</span><span><strong>{update.author}</strong><small>{updateTimeLabel(update.at)}</small><p>{update.message}</p>{update.attachments.length > 0 && <em>▧ {update.attachments.length} photo/video</em>}<small>{update.job.title}</small></span><i>›</i></button>)}</div></section>) : <div className="emptyState">Nothing for that. Try Everything, or Everyone.</div>}<SourceNote /></>;
 }
 
 function parseUpdateDate(at: string) {
@@ -444,11 +445,16 @@ function BudgetSheet({ jobs, close, save }: { jobs: EventJob[]; close: () => voi
   return <div className="sheetLayer" role="presentation"><button className="sheetShade" aria-label="Close budget entry" onClick={close} /><section className="jobSheet" role="dialog" aria-modal="true" aria-labelledby="budget-title"><header><button className="sheetBack" onClick={close}>‹ Back</button><div><p className="eyebrow">Core committee</p><h2 id="budget-title">Add budget entry</h2></div><button aria-label="Close" onClick={close}>×</button></header><div className="sheetBody"><form className="loginForm" onSubmit={submit}><label><span>Category</span><input name="category" placeholder="Venue, travel, programme…" maxLength={100} required /></label><label><span>Description</span><input name="description" placeholder="What is this amount for?" maxLength={300} required /></label><label><span>Vendor</span><input name="vendor" placeholder="Optional" maxLength={150} /></label><label><span>Related activity</span><select name="jobId" defaultValue=""><option value="">No specific activity</option>{jobs.map(job => <option key={job.id} value={job.id}>{job.title}</option>)}</select></label><div className="formPair"><label><span>Amount (₹)</span><input name="amount" type="number" inputMode="decimal" min="0" step="0.01" placeholder="0.00" required /></label><label><span>Status</span><select name="status" defaultValue="planned"><option value="planned">Planned</option><option value="approved">Approved</option><option value="paid">Paid</option><option value="cancelled">Cancelled</option></select></label></div><button className="primaryAction">Save budget entry</button><p className="formStatus errorText" role="alert">{error}</p></form></div></section></div>;
 }
 
-function JobSheet({ job, user, sectionHeading, close, save }: { job: EventJob; user: EventUser; sectionHeading?: string; close: () => void; save: (job: EventJob, updateMessage: string, attachments: File[]) => void | Promise<void> }) {
+function JobSheet({ job, user, sectionHeading, focusUpdateId, close, save }: { job: EventJob; user: EventUser; sectionHeading?: string; focusUpdateId?: string | null; close: () => void; save: (job: EventJob, updateMessage: string, attachments: File[]) => void | Promise<void> }) {
   useSheetHistory(close);
+  const focusedUpdate = focusUpdateId ? job.updates.find(item => item.id === focusUpdateId) ?? null : null;
+  const [showFull, setShowFull] = useState(!focusedUpdate);
   const editable = canEditJob(user, job.ownerIds); const [organised, setOrganised] = useState(job.organised); const [complete, setComplete] = useState(job.complete); const [update, setUpdate] = useState(""); const [attachments, setAttachments] = useState<File[]>([]); const [mediaIssue, setMediaIssue] = useState(""); const [saving, setSaving] = useState(false);
   async function submit(event: FormEvent) { event.preventDefault(); const issue = validateMediaSelection(attachments); if (issue) { setMediaIssue(issue); return; } setSaving(true); try { await save({ ...job, organised, complete }, update.trim(), attachments); } finally { setSaving(false); } }
   function chooseMedia(files: FileList | null) { const selected = files ? Array.from(files) : []; const issue = validateMediaSelection(selected); setMediaIssue(issue || ""); if (!issue) setAttachments(selected); }
+  if (focusedUpdate && !showFull) {
+    return <div className="sheetLayer" role="presentation"><button className="sheetShade" aria-label="Close update" onClick={close} /><section className="jobSheet" role="dialog" aria-modal="true" aria-labelledby="job-title"><header><button className="sheetBack" onClick={close}>‹ Back</button><div><p className="eyebrow">Update</p><h2 id="job-title">{job.title}</h2></div><button aria-label="Close" onClick={close}>×</button></header><div className="sheetBody"><dl>{sectionHeading && <div><dt>Section</dt><dd>{sectionHeading}</dd></div>}<div><dt>Posted by</dt><dd>{focusedUpdate.author}</dd></div><div><dt>When</dt><dd>{focusedUpdate.at}</dd></div></dl><p className="updateMessage">{focusedUpdate.message}</p>{focusedUpdate.attachments.length > 0 && <MediaGrid attachments={focusedUpdate.attachments} />}<button type="button" className="smallAction" onClick={() => setShowFull(true)}>Open full activity ›</button></div></section></div>;
+  }
   return <div className="sheetLayer" role="presentation"><button className="sheetShade" aria-label="Close activity" onClick={close} /><section className="jobSheet" role="dialog" aria-modal="true" aria-labelledby="job-title"><header><button className="sheetBack" onClick={close}>‹ Back</button><div><p className="eyebrow">Activity details</p><h2 id="job-title">{job.title}</h2></div><button aria-label="Close" onClick={close}>×</button></header><div className="sheetBody"><dl>{sectionHeading && <div><dt>Section</dt><dd>{sectionHeading}</dd></div>}<div><dt>Status</dt><dd><span className={`ocChip o mini ${organised ? "on" : ""}`}>O · Organised</span> <span className={`ocChip c mini ${complete ? "on" : ""}`}>C · Complete</span></dd></div><div><dt>Responsible</dt><dd>{job.ownerLabel}</dd></div><div><dt>Finish by</dt><dd>{job.finishBy ? new Date(job.finishBy).toLocaleDateString("en-IN", { day: "numeric", month: "long", year: "numeric" }) : "No date set"}</dd></div><div><dt>Where</dt><dd>{job.venue === "general" ? "Both event teams" : job.venue === "malur" ? "YIL Malur · 15 November" : "Taj West End · 18 November"}</dd></div></dl>{job.blockingNote && <div className="warningBox"><b>Blocked</b><span>{job.blockingNote}</span></div>}<form onSubmit={submit}><fieldset disabled={!editable || saving}><legend>Progress</legend><label className="checkRow"><input type="checkbox" checked={organised} onChange={event => setOrganised(event.target.checked)} /><span><b>Organised</b><small>The arrangement has been made.</small></span></label><label className="checkRow"><input type="checkbox" checked={complete} onChange={event => setComplete(event.target.checked)} /><span><b>Complete</b><small>The work is finished and checked.</small></span></label><label className="updateField"><span>Post an update</span><textarea value={update} onChange={event => setUpdate(event.target.value)} placeholder="What has changed?" maxLength={500} /></label><label className="mediaPicker"><input type="file" accept="image/jpeg,image/png,image/webp,image/heic,image/heif,video/mp4,video/quicktime,video/webm" multiple onChange={event => chooseMedia(event.target.files)} /><span><b>＋ Add photos or video</b><small>Up to 3 files · 50 MB total</small></span></label>{attachments.length > 0 && <div className="selectedMedia">{attachments.map((file, index) => <span key={`${file.name}-${file.lastModified}`}><b>{file.name}</b><small>{(file.size / 1024 / 1024).toFixed(1)} MB</small><button type="button" aria-label={`Remove ${file.name}`} onClick={() => setAttachments(items => items.filter((_, itemIndex) => itemIndex !== index))}>×</button></span>)}</div>}<p className="mediaIssue" role={mediaIssue ? "alert" : "status"}>{mediaIssue}</p></fieldset>{editable ? <button className="primaryAction" type="submit" disabled={saving || Boolean(mediaIssue)}>{saving ? "Saving and uploading…" : "Save activity"}</button> : <p className="readOnlyNote">You can read this activity. Only the assigned person or core committee can change it.</p>}</form>{job.updates.length > 0 && <div className="sheetUpdates"><p className="eyebrow">Updates</p>{job.updates.map(item => <article key={item.id}><b>{item.author}</b><span>{item.message}</span>{item.attachments.length > 0 && <MediaGrid attachments={item.attachments} />}<small>{item.at}</small></article>)}</div>}</div></section></div>;
 }
 
