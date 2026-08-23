@@ -350,7 +350,6 @@ function UpdatesView({ jobs, query, ownerFilter, openJob }: { jobs: EventJob[]; 
   const [venueFilter, setVenueFilter] = useState<"all" | "malur" | "taj">("all");
   const [dayOpen, setDayOpen] = useState(false);
   const [personOpen, setPersonOpen] = useState(false);
-  const [venueOpen, setVenueOpen] = useState(false);
   const authors = [...new Set(jobs.flatMap(job => job.updates.map(update => update.author)))].sort();
   const term = query.trim().toLocaleLowerCase("en-IN");
   const updates = jobs.filter(job => !ownerFilter || job.ownerIds.includes(ownerFilter)).flatMap(job => job.updates.map(update => ({ ...update, job }))).filter(update => (person === "all" || update.author === person) && (venueFilter === "all" || update.job.venue === venueFilter || update.job.venue === "general") && matchesUpdateDay(update.at, day) && (!term || `${update.author} ${update.message} ${update.job.title}`.toLocaleLowerCase("en-IN").includes(term)));
@@ -358,9 +357,12 @@ function UpdatesView({ jobs, query, ownerFilter, openJob }: { jobs: EventJob[]; 
   const filtering = day !== "all" || person !== "all" || venueFilter !== "all";
   const dayOptions = [["all", "Everything"], ["today", "Today"], ["yesterday", "Yesterday"], ["week", "Last 7 days"]] as const;
   const dayLabel = dayOptions.find(([id]) => id === day)?.[1] ?? new Date(`${day}T12:00:00`).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" });
-  const venueOptions = [["all", "Both evenings"], ["malur", "YIL Malur"], ["taj", "Taj West End"]] as const;
-  const venueLabel = venueOptions.find(([id]) => id === venueFilter)?.[1];
   return <><section className="guestHero staysHero updatesHero"><div><p className="eyebrow">Across the committee</p><h1>Team updates</h1><p>What everyone has done, newest first. Tap an update to open the activity behind it.</p></div></section>
+    <div className="venueSegments" role="group" aria-label="Choose the evening">
+      <button className={venueFilter === "all" ? "active" : ""} onClick={() => setVenueFilter("all")}>Both evenings</button>
+      <button className={venueFilter === "malur" ? "active" : ""} onClick={() => setVenueFilter("malur")}>YIL Malur</button>
+      <button className={venueFilter === "taj" ? "active" : ""} onClick={() => setVenueFilter("taj")}>Taj West End</button>
+    </div>
     <div className="updatesPickers">
       <details className="pickerChip" open={dayOpen} onToggle={event => setDayOpen(event.currentTarget.open)}>
         <summary aria-label="Pick a day"><span>Day</span><b>{dayLabel}</b><i>▾</i></summary>
@@ -374,12 +376,6 @@ function UpdatesView({ jobs, query, ownerFilter, openJob }: { jobs: EventJob[]; 
         <div className="pickerPanel pickerPeople">
           <button className={person === "all" ? "active" : ""} onClick={() => { setPerson("all"); setPersonOpen(false); }}>Everyone</button>
           {authors.map(author => <button key={author} className={person === author ? "active" : ""} onClick={() => { setPerson(author); setPersonOpen(false); }}>{author}</button>)}
-        </div>
-      </details>
-      <details className="pickerChip" open={venueOpen} onToggle={event => setVenueOpen(event.currentTarget.open)}>
-        <summary aria-label="Pick an evening"><span>Evening</span><b>{venueLabel}</b><i>▾</i></summary>
-        <div className="pickerPanel">
-          {venueOptions.map(([id, label]) => <button key={id} className={venueFilter === id ? "active" : ""} onClick={() => { setVenueFilter(id); setVenueOpen(false); }}>{label}</button>)}
         </div>
       </details>
       {filtering && <button className="updatesClear" onClick={() => { setDay("all"); setPerson("all"); setVenueFilter("all"); }}>Show everything</button>}
