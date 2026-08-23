@@ -8,6 +8,7 @@ export type RuntimeEnv = {
   MASTER_IMPORT_KEY?: string;
   GOOGLE_SHEETS_WEB_APP_URL?: string;
   GOOGLE_SHEETS_SHARED_SECRET?: string;
+  SYNC_CRON_SECRET?: string;
   MESSAGE_DELIVERY_MODE?: "test" | "production";
   MESSAGE_TEST_WHATSAPP_ALLOWLIST?: string;
   MESSAGE_TEST_EMAIL_ALLOWLIST?: string;

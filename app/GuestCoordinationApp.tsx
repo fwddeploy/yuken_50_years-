@@ -21,14 +21,17 @@ const guestTabs: { id: GuestTab; icon: string; label: string }[] = [
 
 const emptySnapshot: GuestSnapshot = { guests: [], categories: [], groups: [], travelPlans: [], hotels: [] };
 
-export default function GuestCoordinationApp({ user, team, back, signOut }: { user: EventUser; team: EventTeamMember[]; back: () => void; signOut: () => void }) {
+export default function GuestCoordinationApp({ user, team, back, signOut, openSyncOnMount, consumeSyncIntent }: { user: EventUser; team: EventTeamMember[]; back: () => void; signOut: () => void; openSyncOnMount?: boolean; consumeSyncIntent?: () => void }) {
   const preview = user.id === previewUser.id;
   const [tab, setTab] = useState<GuestTab>("mine");
   const [snapshot, setSnapshot] = useState<GuestSnapshot>(() => preview ? previewGuestSnapshot : emptySnapshot);
   const [loading, setLoading] = useState(!preview);
   const [sendAudience, setSendAudience] = useState<SendAudience | null>(null);
-  const [sheetSyncOpen, setSheetSyncOpen] = useState(false);
+  const [sheetSyncOpen, setSheetSyncOpen] = useState(Boolean(openSyncOnMount && user.isCore));
   const [toast, setToast] = useState("");
+  const consumeSyncIntentRef = useRef(consumeSyncIntent);
+  useEffect(() => { consumeSyncIntentRef.current = consumeSyncIntent; });
+  useEffect(() => { consumeSyncIntentRef.current?.(); }, []);
 
   const tabRef = useRef<GuestTab>("mine");
   useEffect(() => { tabRef.current = tab; }, [tab]);

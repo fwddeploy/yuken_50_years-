@@ -26,6 +26,14 @@ interface ExecutionContext {
 // const imageConfig: ImageConfig = { dangerouslyAllowSVG: true };
 
 const worker = {
+  /** Cron trigger (configured at deploy time): runs the Master Sheet
+   *  auto-sync by calling the app's own authenticated route, so all sync
+   *  logic lives in one place and can also be triggered manually. */
+  async scheduled(_event: unknown, env: Env & { SYNC_CRON_SECRET?: string }, ctx: ExecutionContext): Promise<void> {
+    const request = new Request("https://cron.internal/api/master/auto-sync", { method: "POST", headers: { "x-cron-key": env.SYNC_CRON_SECRET ?? "" } });
+    ctx.waitUntil(worker.fetch(request, env, ctx));
+  },
+
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
 

@@ -45,6 +45,8 @@ export default function EventOperationsApp() {
   const [signingIn, setSigningIn] = useState(false);
   const [toast, setToast] = useState("");
   const [eventDataReady, setEventDataReady] = useState(false);
+  const [syncStatus, setSyncStatus] = useState<{ pendingApproval: boolean; needsFixing: boolean; latestSummary: string | null } | null>(null);
+  const [guestSyncIntent, setGuestSyncIntent] = useState(false);
   const userRef = useRef<EventUser | null>(null);
   const screenRef = useRef<Screen>("login");
   const tabRef = useRef<EventTab>("home");
@@ -151,6 +153,20 @@ export default function EventOperationsApp() {
     return () => window.clearTimeout(timer);
   }, [toast]);
 
+  useEffect(() => {
+    if ((screen !== "event" && screen !== "guest") || !user?.isCore || user.id === previewUser.id) return;
+    let cancelled = false;
+    const load = () => fetch("/api/master/sync-status", { cache: "no-store" }).then(async response => {
+      if (!response.ok || cancelled) return;
+      const payload = await response.json() as { pendingApproval: boolean; needsFixing: boolean; latestSummary: string | null };
+      if (!cancelled) setSyncStatus(payload);
+    }).catch(() => undefined);
+    void load();
+    const timer = window.setInterval(load, 120_000);
+    return () => { cancelled = true; window.clearInterval(timer); };
+  }, [screen, user]);
+
+
   async function signIn(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setSigningIn(true); setAuthError("");
@@ -229,7 +245,7 @@ export default function EventOperationsApp() {
   if (screen === "pin" && user) return <PinScreen user={user} submit={changePin} error={authError} />;
   if (screen === "choose" && user) return <WorkAreaScreen user={user} openEvent={() => navigateScreen("event")} openGuest={() => navigateScreen("guest")} signOut={signOut} />;
   if (!user) return null;
-  if (screen === "guest") return <GuestCoordinationApp user={user} team={team} back={() => navigateScreen("choose")} signOut={signOut} />;
+  if (screen === "guest") return <GuestCoordinationApp user={user} team={team} back={() => navigateScreen("choose")} signOut={signOut} openSyncOnMount={guestSyncIntent} consumeSyncIntent={() => setGuestSyncIntent(false)} />;
 
   return <main className="eventApp">
     <EventHeader tab={tab} user={user} back={() => navigateScreen("choose")} signOut={signOut} search={() => setEventSearchOpen(value => !value)} />
@@ -250,6 +266,10 @@ export default function EventOperationsApp() {
     </nav>
     {selectedJob && <JobSheet job={selectedJob} user={user} sectionHeading={sections.find(section => section.id === selectedJob.sectionId)?.heading} focusUpdateId={selectedUpdateId} close={() => { setSelectedJobId(null); setSelectedUpdateId(null); }} save={saveJob} />}
     {budgetOpen && <BudgetSheet jobs={jobs} close={() => setBudgetOpen(false)} save={saveBudget} />}
+    {syncStatus && (syncStatus.pendingApproval || syncStatus.needsFixing) && <div className="updateBanner syncBanner">
+      <span><b>{syncStatus.pendingApproval ? "Master Sheet removals need your OK" : "The Master Sheet needs fixing"}</b><small>{syncStatus.latestSummary ?? "Open the sync screen to review."}</small></span>
+      <button onClick={() => { setGuestSyncIntent(true); navigateScreen("guest"); }}>Review</button>
+    </div>}
     {toast && <div className="toast" role="status">{toast}</div>}
   </main>;
 }
