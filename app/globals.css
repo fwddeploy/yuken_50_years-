@@ -185,6 +185,9 @@
 .staysHero{min-height:0;padding:18px 22px}
 .staysHero p:last-child{margin-top:2px}
 @media(max-width:760px){.staysHero{padding:15px 15px}}
+.updatesHero{padding:14px 18px}
+.updatesHero h1{margin:2px 0 5px;font-size:24px}
+.updatesHero p:last-child{font-size:12px;line-height:1.4}
 .metricGrid.budgetMetrics{margin-top:14px}
 .pickerChip summary{min-height:44px;padding:6px 12px}
 .mineSegments button{min-height:48px}
