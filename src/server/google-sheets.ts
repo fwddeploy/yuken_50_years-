@@ -54,6 +54,15 @@ export async function flushGoogleSheetOutbox(limit = 25) {
   const url = runtime.GOOGLE_SHEETS_WEB_APP_URL?.trim() ?? "";
   const secret = runtime.GOOGLE_SHEETS_SHARED_SECRET?.trim() ?? "";
   if (!googleSheetsConfigured()) return { configured: false, attempted: 0, delivered: 0 };
+  // While a Master Sheet version is waiting to be approved or fixed, the app
+  // and the Sheet hold different data. Pushing app edits in that state writes
+  // rows whose group or category name exists only in the app, which then fails
+  // the Sheet's own reference checks and blocks the whole sync. Queued writes
+  // are kept and delivered once the Sheet and the app agree again.
+  const blocked = await runtime.DB.prepare("SELECT outcome FROM sync_runs WHERE outcome IN ('applied','awaiting-approval','needs-fixing','no-change') ORDER BY started_at DESC LIMIT 1").first<{ outcome: string }>();
+  if (blocked && (blocked.outcome === "awaiting-approval" || blocked.outcome === "needs-fixing")) {
+    return { configured: true, attempted: 0, delivered: 0, heldForMasterReview: true };
+  }
   const now = new Date().toISOString();
   const rows = await runtime.DB.prepare(`
     SELECT id, entity_type AS entityType, entity_id AS entityId, operation, payload_json AS payloadJson, updated_at AS updatedAt, attempts

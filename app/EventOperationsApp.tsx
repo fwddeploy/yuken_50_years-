@@ -12,7 +12,20 @@ type Screen = "login" | "pin" | "choose" | "event" | "guest";
 type EventTab = "home" | "updates" | "malur" | "taj" | "budget";
 type EventTeamMember = { id: string; initials: string; fullName: string };
 const APP_TODAY_MS = Date.now();
-const RESUME_RESET_AFTER_MS = 5 * 60 * 1000;
+/** The work area a coordinator last used. Reopening the app takes them
+ *  straight back there instead of asking again; "Switch work area" is always
+ *  in the account menu, and the chooser still appears the very first time. */
+const LAST_AREA_KEY = "yil.lastWorkArea";
+function rememberWorkArea(area: "event" | "guest") {
+  try { window.localStorage.setItem(LAST_AREA_KEY, area); } catch { /* private mode: just ask again */ }
+}
+function lastWorkArea(): "event" | "guest" | null {
+  try { const value = window.localStorage.getItem(LAST_AREA_KEY); return value === "event" || value === "guest" ? value : null; } catch { return null; }
+}
+/** After this long in the background, reopening refreshes the data in place.
+ *  It never moves the coordinator off the screen they left — the work area is
+ *  remembered, so coming back should feel like picking the phone up again. */
+const RESUME_REFRESH_AFTER_MS = 5 * 60 * 1000;
 
 function daysToGo(date: string) {
   const days = Math.ceil((new Date(`${date}T00:00:00`).getTime() - APP_TODAY_MS) / 86400000);
@@ -36,6 +49,7 @@ export default function EventOperationsApp() {
   const [team, setTeam] = useState<EventTeamMember[]>([]);
   const [budgetSheet, setBudgetSheet] = useState<EventBudgetEntry | "new" | null>(null);
   const [pinsOpen, setPinsOpen] = useState(false);
+  const [dataNonce, setDataNonce] = useState(0);
   const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
   const [selectedUpdateId, setSelectedUpdateId] = useState<string | null>(null);
   const [selectedSectionId, setSelectedSectionId] = useState<string | null>(null);
@@ -69,13 +83,13 @@ export default function EventOperationsApp() {
       hiddenAtRef.current = null;
       if (hiddenAt === null || !userRef.current) return;
       const awayMs = Date.now() - hiddenAt;
-      if (awayMs >= RESUME_RESET_AFTER_MS && (screenRef.current === "event" || screenRef.current === "guest")) {
-        navigateScreen("choose", true);
+      if (awayMs >= RESUME_REFRESH_AFTER_MS && (screenRef.current === "event" || screenRef.current === "guest")) {
+        setSelectedJobId(null); setSelectedUpdateId(null); setBudgetSheet(null); setPinsOpen(false);
+        setDataNonce(value => value + 1);
       }
     }
     document.addEventListener("visibilitychange", handleVisibilityChange);
     return () => document.removeEventListener("visibilitychange", handleVisibilityChange);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
@@ -119,6 +133,7 @@ export default function EventOperationsApp() {
     const closingSheet = anySheetLayerOpen();
     if (closingSheet) delete state.yilSheet;
     if (replace || closingSheet) window.history.replaceState(state, ""); else window.history.pushState(state, "");
+    if (next === "event" || next === "guest") rememberWorkArea(next);
     setSelectedJobId(null); setSelectedUpdateId(null); setSelectedSectionId(null); setBudgetSheet(null); setPinsOpen(false); setEventSearchOpen(false); setScreen(next); window.scrollTo(0, 0);
   }
 
@@ -144,7 +159,8 @@ export default function EventOperationsApp() {
       if (!response.ok) return;
       const payload = await response.json() as { user?: EventUser; requiresPinChange?: boolean };
       if (payload.user) {
-        const nextScreen = payload.requiresPinChange ? "pin" : "choose";
+        const remembered = lastWorkArea();
+        const nextScreen: Screen = payload.requiresPinChange ? "pin" : remembered ?? "choose";
         setUser(payload.user); setScreen(nextScreen);
         window.history.replaceState({ ...(window.history.state ?? {}), yilApp: true, screen: nextScreen, eventTab: "home" }, "");
       }
@@ -162,7 +178,7 @@ export default function EventOperationsApp() {
       if (payload.team) setTeam(payload.team);
       setEventDataReady(true);
     }).catch(error => { setEventDataReady(true); setToast(error instanceof Error ? error.message : "Event Work could not be loaded."); });
-  }, [screen, user]);
+  }, [screen, user, dataNonce]);
 
   useEffect(() => {
     if (!toast) return;
