@@ -35,6 +35,7 @@ export default function EventOperationsApp() {
   const [budget, setBudget] = useState<EventBudgetEntry[]>([...previewBudget]);
   const [team, setTeam] = useState<EventTeamMember[]>([]);
   const [budgetSheet, setBudgetSheet] = useState<EventBudgetEntry | "new" | null>(null);
+  const [pinsOpen, setPinsOpen] = useState(false);
   const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
   const [selectedUpdateId, setSelectedUpdateId] = useState<string | null>(null);
   const [selectedSectionId, setSelectedSectionId] = useState<string | null>(null);
@@ -95,7 +96,7 @@ export default function EventOperationsApp() {
       if (sheetDepth > 0) return;
       const nextSection = typeof state.sectionId === "string" ? state.sectionId : null;
       const viewChanged = (state.screen && state.screen !== screenRef.current) || (state.eventTab && state.eventTab !== tabRef.current) || nextSection !== sectionRef.current;
-      setSelectedJobId(null); setSelectedUpdateId(null); setBudgetSheet(null); setEventSearchOpen(false); setSelectedSectionId(nextSection);
+      setSelectedJobId(null); setSelectedUpdateId(null); setBudgetSheet(null); setPinsOpen(false); setEventSearchOpen(false); setSelectedSectionId(nextSection);
       if (viewChanged) window.scrollTo(0, 0);
     }
     window.addEventListener("popstate", restoreFromHistory);
@@ -108,7 +109,7 @@ export default function EventOperationsApp() {
    *  does not history.back() over the entry we just wrote. */
   function anySheetLayerOpen() {
     const depth = (window.history.state as { yilSheet?: boolean | number } | null)?.yilSheet;
-    return Boolean(selectedJobId) || Boolean(budgetSheet) || eventSearchOpen || (typeof depth === "number" ? depth > 0 : Boolean(depth));
+    return Boolean(selectedJobId) || Boolean(budgetSheet) || pinsOpen || eventSearchOpen || (typeof depth === "number" ? depth > 0 : Boolean(depth));
   }
 
   function navigateScreen(next: Screen, replace = false) {
@@ -118,7 +119,7 @@ export default function EventOperationsApp() {
     const closingSheet = anySheetLayerOpen();
     if (closingSheet) delete state.yilSheet;
     if (replace || closingSheet) window.history.replaceState(state, ""); else window.history.pushState(state, "");
-    setSelectedJobId(null); setSelectedUpdateId(null); setSelectedSectionId(null); setBudgetSheet(null); setEventSearchOpen(false); setScreen(next); window.scrollTo(0, 0);
+    setSelectedJobId(null); setSelectedUpdateId(null); setSelectedSectionId(null); setBudgetSheet(null); setPinsOpen(false); setEventSearchOpen(false); setScreen(next); window.scrollTo(0, 0);
   }
 
   function openSectionWithHistory(id: string) {
@@ -126,7 +127,7 @@ export default function EventOperationsApp() {
     const state: Record<string, unknown> = { ...(window.history.state ?? {}), yilApp: true, screen: "event" as const, eventTab: tab, sectionId: id };
     if (closingSheet) delete state.yilSheet;
     if (closingSheet) window.history.replaceState(state, ""); else window.history.pushState(state, "");
-    setSelectedJobId(null); setSelectedUpdateId(null); setBudgetSheet(null); setEventSearchOpen(false); setSelectedSectionId(id); window.scrollTo(0, 0);
+    setSelectedJobId(null); setSelectedUpdateId(null); setBudgetSheet(null); setPinsOpen(false); setEventSearchOpen(false); setSelectedSectionId(id); window.scrollTo(0, 0);
   }
 
   function navigateEventTab(next: EventTab) {
@@ -135,7 +136,7 @@ export default function EventOperationsApp() {
     delete state.sectionId;
     if (closingSheet) delete state.yilSheet;
     if (closingSheet) window.history.replaceState(state, ""); else window.history.pushState(state, "");
-    setSelectedSectionId(null); setEventSearchOpen(false); setSelectedJobId(null); setSelectedUpdateId(null); setBudgetSheet(null); setTab(next); window.scrollTo(0, 0);
+    setSelectedSectionId(null); setEventSearchOpen(false); setSelectedJobId(null); setSelectedUpdateId(null); setBudgetSheet(null); setPinsOpen(false); setTab(next); window.scrollTo(0, 0);
   }
 
   useEffect(() => {
@@ -216,16 +217,18 @@ export default function EventOperationsApp() {
     setUser(null); userRef.current = null; setTab("home"); navigateScreen("login", true);
   }
 
-  async function saveJob(next: EventJob, updateMessage: string, attachments: File[]) {
+  async function saveJob(next: EventJob, updateMessage: string, attachments: File[], finishBy?: string | null) {
     if (user?.id === previewUser.id) {
       const localAttachments = attachments.map(file => ({ id: crypto.randomUUID(), fileName: file.name, contentType: file.type, sizeBytes: file.size, url: URL.createObjectURL(file) }));
-      const local = updateMessage.trim() || attachments.length ? { ...next, updates: [{ id: crypto.randomUUID(), author: user.fullName, message: updateMessage.trim() || `Shared ${attachments.length} attachment${attachments.length === 1 ? "" : "s"}.`, at: "just now", attachments: localAttachments }, ...next.updates] } : next;
+      const withDate = finishBy === undefined ? next : { ...next, finishBy: finishBy ?? undefined };
+      const local = updateMessage.trim() || attachments.length ? { ...withDate, updates: [{ id: crypto.randomUUID(), author: user.fullName, message: updateMessage.trim() || `Shared ${attachments.length} attachment${attachments.length === 1 ? "" : "s"}.`, at: "just now", attachments: localAttachments }, ...withDate.updates] } : withDate;
       setJobs(items => items.map(item => item.id === local.id ? local : item));
       setSelectedJobId(null); setSelectedUpdateId(null); setToast("Activity updated in this local preview."); return;
     }
     const form = new FormData();
     form.set("organised", String(next.organised)); form.set("complete", String(next.complete)); form.set("blockingNote", next.blockingNote || ""); form.set("updateMessage", updateMessage);
     if (next.updatedAt) form.set("expectedUpdatedAt", next.updatedAt);
+    if (finishBy !== undefined) form.set("finishBy", finishBy ?? "");
     for (const file of attachments) form.append("attachments", file);
     const response = await fetch(`/api/jobs/${encodeURIComponent(next.id)}`, { method: "PATCH", body: form });
     const payload = await response.json() as { error?: string; updatedAt?: string };
@@ -235,6 +238,36 @@ export default function EventOperationsApp() {
     if (!snapshotResponse.ok || !snapshot.jobs) { setToast(snapshot.error || "Activity saved, but the refreshed list could not be loaded."); return; }
     setJobs(snapshot.jobs);
     setSelectedJobId(null); setSelectedUpdateId(null); setToast("Activity saved.");
+  }
+
+  async function refreshJobs(successMessage: string) {
+    const response = await fetch("/api/event/snapshot", { cache: "no-store" });
+    const snapshot = await response.json() as { jobs?: EventJob[]; error?: string };
+    if (!response.ok || !snapshot.jobs) { setToast(snapshot.error || "Saved, but the refreshed list could not be loaded."); return; }
+    setJobs(snapshot.jobs); setToast(successMessage);
+  }
+
+  async function editUpdate(jobId: string, updateId: string, message: string) {
+    if (user?.id === previewUser.id) {
+      setJobs(items => items.map(job => job.id === jobId ? { ...job, updates: job.updates.map(item => item.id === updateId ? { ...item, message } : item) } : job));
+      setToast("Update corrected in this local preview."); return true;
+    }
+    const response = await fetch(`/api/jobs/${encodeURIComponent(jobId)}/updates/${encodeURIComponent(updateId)}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ message }) });
+    const payload = await response.json() as { error?: string };
+    if (!response.ok) { setToast(payload.error || "The update could not be corrected."); return false; }
+    await refreshJobs("Update corrected."); return true;
+  }
+
+  async function withdrawUpdate(jobId: string, updateId: string) {
+    if (user?.id === previewUser.id) {
+      setJobs(items => items.map(job => job.id === jobId ? { ...job, updates: job.updates.filter(item => item.id !== updateId) } : job));
+      setSelectedUpdateId(null); setToast("Update withdrawn in this local preview."); return true;
+    }
+    const response = await fetch(`/api/jobs/${encodeURIComponent(jobId)}/updates/${encodeURIComponent(updateId)}`, { method: "DELETE" });
+    const payload = await response.json() as { error?: string };
+    if (!response.ok) { setToast(payload.error || "The update could not be withdrawn."); return false; }
+    setSelectedUpdateId(null);
+    await refreshJobs("Update withdrawn."); return true;
   }
 
   async function quickToggle(job: EventJob, field: "organised" | "complete") {
@@ -268,7 +301,7 @@ export default function EventOperationsApp() {
   if (screen === "guest") return <GuestCoordinationApp user={user} team={team} back={() => navigateScreen("choose")} signOut={signOut} openSyncOnMount={guestSyncIntent} consumeSyncIntent={() => setGuestSyncIntent(false)} />;
 
   return <main className="eventApp">
-    <EventHeader tab={tab} user={user} back={() => navigateScreen("choose")} signOut={signOut} search={() => setEventSearchOpen(value => !value)} />
+    <EventHeader tab={tab} user={user} back={() => navigateScreen("choose")} signOut={signOut} search={() => setEventSearchOpen(value => !value)} openPins={() => setPinsOpen(true)} />
     <CommitteeStrip team={team} selected={ownerFilter} select={setOwnerFilter} />
     <div className="eventBody">
       {eventSearchOpen && <EventSearch value={eventQuery} change={setEventQuery} close={() => { setEventQuery(""); setEventSearchOpen(false); }} />}
@@ -284,8 +317,9 @@ export default function EventOperationsApp() {
     <nav className="eventTabs" aria-label="Event Work">
       {tabs.filter(item => !item.core || user.isCore).map(item => <button key={item.id} className={tab === item.id ? "active" : ""} aria-current={tab === item.id ? "page" : undefined} onClick={() => navigateEventTab(item.id)}><span>{item.icon}</span>{item.label}</button>)}
     </nav>
-    {selectedJob && <JobSheet job={selectedJob} user={user} sectionHeading={sections.find(section => section.id === selectedJob.sectionId)?.heading} focusUpdateId={selectedUpdateId} close={() => { setSelectedJobId(null); setSelectedUpdateId(null); }} save={saveJob} />}
+    {selectedJob && <JobSheet job={selectedJob} user={user} sectionHeading={sections.find(section => section.id === selectedJob.sectionId)?.heading} focusUpdateId={selectedUpdateId} close={() => { setSelectedJobId(null); setSelectedUpdateId(null); }} save={saveJob} editUpdate={editUpdate} withdrawUpdate={withdrawUpdate} />}
     {budgetSheet && <BudgetSheet jobs={jobs} entry={budgetSheet === "new" ? undefined : budgetSheet} close={() => setBudgetSheet(null)} save={saveBudget} />}
+    {pinsOpen && <PinsSheet preview={user.id === previewUser.id} close={() => setPinsOpen(false)} notify={setToast} />}
     {syncStatus && (syncStatus.pendingApproval || syncStatus.needsFixing) && <div className="updateBanner syncBanner">
       <span><b>{syncStatus.pendingApproval ? "Master Sheet removals need your OK" : "The Master Sheet needs fixing"}</b><small>{syncStatus.latestSummary ?? "Open the sync screen to review."}</small></span>
       <button onClick={() => { setGuestSyncIntent(true); navigateScreen("guest"); }}>Review</button>
@@ -333,9 +367,9 @@ function WorkAreaScreen({ user, openEvent, openGuest, signOut }: { user: EventUs
   return <main className="centredScreen"><section className="areaCard"><header><span className="miniMark">YIL <b>50</b></span><button onClick={signOut}>Sign out</button></header><p className="eyebrow">Signed in as {user.fullName}</p><h1>Where would you like to start?</h1><p>Choose one work area. You can switch later without signing in again.</p><div className="areaChoices"><button onClick={openEvent}><span className="areaIcon">◈</span><strong>Event Work</strong><small>Planning, updates, Malur, Taj and budget</small><i>›</i></button><button onClick={openGuest}><span className="areaIcon">◉</span><strong>Guest coordination</strong><small>Mine, invitations, guests, travel and stays</small><i>›</i></button></div></section></main>;
 }
 
-function EventHeader({ tab, user, back, signOut, search }: { tab: EventTab; user: EventUser; back: () => void; signOut: () => void; search: () => void }) {
+function EventHeader({ tab, user, back, signOut, search, openPins }: { tab: EventTab; user: EventUser; back: () => void; signOut: () => void; search: () => void; openPins: () => void }) {
   const title = { home: "Golden Jubilee 2026", updates: "Team updates", malur: "YIL Malur", taj: "Taj West End", budget: "Event budget" }[tab];
-  return <header className="eventHeader"><div className="headerBrand"><span>YIL <b>50</b></span><div><strong>{title}</strong><small>{tab === "home" ? "Planning activity" : "Event Work"}</small></div></div><div className="headerActions"><button className="headerSearch" aria-label="Search Event Work" onClick={search}>⌕</button><details className="userMenu"><summary aria-label="Open account menu"><span>{user.initials}</span></summary><div><b>{user.fullName}</b><small>{user.responsibility}</small><button onClick={back}>Switch work area</button><button onClick={signOut}>Sign out</button></div></details></div></header>;
+  return <header className="eventHeader"><div className="headerBrand"><span>YIL <b>50</b></span><div><strong>{title}</strong><small>{tab === "home" ? "Planning activity" : "Event Work"}</small></div></div><div className="headerActions"><button className="headerSearch" aria-label="Search Event Work" onClick={search}>⌕</button><details className="userMenu"><summary aria-label="Open account menu"><span>{user.initials}</span></summary><div><b>{user.fullName}</b><small>{user.responsibility}</small>{user.isCore && <button onClick={openPins}>Sign-in PINs</button>}<button onClick={back}>Switch work area</button><button onClick={signOut}>Sign out</button></div></details></div></header>;
 }
 
 function CommitteeStrip({ team, selected, select }: { team: EventTeamMember[]; selected: string | null; select: (id: string | null) => void }) {
@@ -477,6 +511,58 @@ function BudgetView({ entries, add, edit }: { entries: EventBudgetEntry[]; add: 
   return <><section className="guestHero staysHero"><div><p className="eyebrow">Core committee only</p><h1>Event budget</h1><p>Every planned, approved and paid amount for both evenings, entered here by the committee.</p></div></section><section className="metricGrid budgetMetrics"><article><b>₹{total("planned").toLocaleString("en-IN")}</b><span>planned</span></article><article><b>₹{total("approved").toLocaleString("en-IN")}</b><span>approved</span></article><article><b>₹{total("paid").toLocaleString("en-IN")}</b><span>paid</span></article></section><div className="sectionTitle prototypeSectionTitle"><div><p className="eyebrow">Budget activity</p><h2>Budget lines</h2></div><button className="smallAction" onClick={add}>＋ Add entry</button></div>{entries.length ? Object.entries(grouped).map(([category, items]) => <section className="updateDay budgetGroup" key={category}><header><b>{category}</b><span>{items.length}</span></header><div className="budgetList">{items.map(item => <article key={item.id}><button className="budgetRowTap" onClick={() => edit(item)} aria-label={`Edit ${item.description || item.category}`}><span><b>{item.description || item.category}</b><small>{item.vendor || "No vendor yet"}</small></span><strong>₹{(item.amountPaise / 100).toLocaleString("en-IN")}</strong><em className={`budgetStatus ${item.status}`}>{item.status}</em></button></article>)}</div></section>) : <div className="emptyState">No budget lines yet. Tap ＋ Add entry to record the first amount.</div>}<SourceNote /></>;
 }
 
+type PersonPinRow = { id: string; initials: string; fullName: string; responsibility: string; employeeNumber: string; isCore: boolean; hasPin: boolean; mustChangePin: boolean; lockedOut: boolean };
+
+/** Core-committee screen for handing out sign-in PINs. The generated PIN is
+ *  shown once, here, and never stored anywhere we can read it back. */
+function PinsSheet({ preview, close, notify }: { preview: boolean; close: () => void; notify: (message: string) => void }) {
+  useSheetHistory(close);
+  const [rows, setRows] = useState<PersonPinRow[] | null>(preview ? [] : null);
+  const [query, setQuery] = useState("");
+  const [busyId, setBusyId] = useState("");
+  const [handed, setHanded] = useState<{ fullName: string; pin: string } | null>(null);
+  useEffect(() => {
+    if (preview) return;
+    let active = true;
+    fetch("/api/people", { cache: "no-store" }).then(async response => {
+      const payload = await response.json() as { people?: PersonPinRow[]; error?: string };
+      if (!response.ok) throw new Error(payload.error || "The team list could not be loaded.");
+      if (active) setRows(payload.people ?? []);
+    }).catch(error => { if (active) { setRows([]); notify(error instanceof Error ? error.message : "The team list could not be loaded."); } });
+    return () => { active = false; };
+  }, [preview, notify]);
+
+  async function reset(person: PersonPinRow) {
+    if (!window.confirm(`Give ${person.fullName} a new PIN? Their current PIN stops working straight away and they will be signed out.`)) return;
+    setBusyId(person.id);
+    try {
+      const response = await fetch(`/api/people/${encodeURIComponent(person.id)}/reset-pin`, { method: "POST" });
+      const payload = await response.json() as { fullName?: string; pin?: string; error?: string };
+      if (!response.ok || !payload.pin) throw new Error(payload.error || "The new PIN could not be created.");
+      setHanded({ fullName: payload.fullName ?? person.fullName, pin: payload.pin });
+      setRows(items => (items ?? []).map(item => item.id === person.id ? { ...item, hasPin: true, mustChangePin: true, lockedOut: false } : item));
+    } catch (error) { notify(error instanceof Error ? error.message : "The new PIN could not be created."); }
+    finally { setBusyId(""); }
+  }
+
+  const needle = query.trim().toLocaleLowerCase("en-IN");
+  const shown = (rows ?? []).filter(person => !needle || `${person.fullName} ${person.initials} ${person.employeeNumber} ${person.responsibility}`.toLocaleLowerCase("en-IN").includes(needle));
+  return <div className="sheetLayer" role="presentation"><button className="sheetShade" aria-label="Close sign-in PINs" onClick={close} /><section className="jobSheet" role="dialog" aria-modal="true" aria-labelledby="pins-title"><header><button className="sheetBack" onClick={close}>‹ Back</button><div><p className="eyebrow">Core committee</p><h2 id="pins-title">Sign-in PINs</h2></div><button aria-label="Close" onClick={close}>×</button></header><div className="sheetBody">
+    {handed
+      ? <div className="handedPin"><p className="eyebrow">Read this out to them now</p><b>{handed.fullName}</b><strong>{handed.pin}</strong><p>This is the only time the PIN is shown. They must choose their own four digits the first time they sign in.</p><button className="primaryAction" onClick={() => setHanded(null)}>Done</button></div>
+      : <>
+        <div className="plainRule"><b>When somebody cannot sign in</b><span>Give them a new PIN here, read it out, and they choose their own on the next sign-in. Nobody — not even the committee — can read an existing PIN.</span></div>
+        <label className="searchBox pinSearch"><span aria-hidden="true">⌕</span><input type="search" value={query} onChange={event => setQuery(event.target.value)} placeholder="Search name or employee number" aria-label="Search the team" /></label>
+        {rows === null ? <div className="quietState"><b>Loading the team…</b></div> : !shown.length ? <div className="quietState"><b>Nobody matches that search</b><span>Employee numbers come from the Master Sheet.</span></div>
+          : <div className="pinList">{shown.map(person => <article key={person.id}>
+            <span className="pinPerson"><b>{person.fullName}</b><small>{person.employeeNumber} · {person.responsibility || "No responsibility recorded"}</small></span>
+            <span className={person.lockedOut ? "attentionPill" : person.mustChangePin ? "attentionPill" : "readyPill"}>{person.lockedOut ? "Locked out" : person.mustChangePin ? "Not set up yet" : "PIN chosen"}</span>
+            <button className="secondaryAction" disabled={busyId === person.id} onClick={() => void reset(person)}>{busyId === person.id ? "Working…" : "New PIN"}</button>
+          </article>)}</div>}
+      </>}
+  </div></section></div>;
+}
+
 function BudgetSheet({ jobs, entry, close, save }: { jobs: EventJob[]; entry?: EventBudgetEntry; close: () => void; save: (entry: Omit<EventBudgetEntry, "id"> & { id?: string }) => void | Promise<void> }) {
   useSheetHistory(close);
   const [error, setError] = useState("");
@@ -484,17 +570,41 @@ function BudgetSheet({ jobs, entry, close, save }: { jobs: EventJob[]; entry?: E
   return <div className="sheetLayer" role="presentation"><button className="sheetShade" aria-label="Close budget entry" onClick={close} /><section className="jobSheet" role="dialog" aria-modal="true" aria-labelledby="budget-title"><header><button className="sheetBack" onClick={close}>‹ Back</button><div><p className="eyebrow">Core committee</p><h2 id="budget-title">{entry ? "Edit budget entry" : "Add budget entry"}</h2></div><button aria-label="Close" onClick={close}>×</button></header><div className="sheetBody"><form className="loginForm" onSubmit={submit}><label><span>Category</span><input name="category" defaultValue={entry?.category} placeholder="Venue, travel, programme…" maxLength={100} required /></label><label><span>Description</span><input name="description" defaultValue={entry?.description} placeholder="What is this amount for?" maxLength={300} required /></label><label><span>Vendor</span><input name="vendor" defaultValue={entry?.vendor} placeholder="Optional" maxLength={150} /></label><label><span>Related activity</span><select name="jobId" defaultValue={entry?.jobId ?? ""}><option value="">No specific activity</option>{jobs.map(job => <option key={job.id} value={job.id}>{job.title}</option>)}</select></label><div className="formPair"><label><span>Amount (₹)</span><input name="amount" type="number" inputMode="decimal" min="0" step="0.01" defaultValue={entry ? (entry.amountPaise / 100).toString() : undefined} placeholder="0.00" required /></label><label><span>Status</span><select name="status" defaultValue={entry?.status ?? "planned"}><option value="planned">Planned</option><option value="approved">Approved</option><option value="paid">Paid</option><option value="cancelled">Cancelled</option></select></label></div><button className="primaryAction">{entry ? "Save changes" : "Save budget entry"}</button><p className="formStatus errorText" role="alert">{error}</p></form></div></section></div>;
 }
 
-function JobSheet({ job, user, sectionHeading, focusUpdateId, close, save }: { job: EventJob; user: EventUser; sectionHeading?: string; focusUpdateId?: string | null; close: () => void; save: (job: EventJob, updateMessage: string, attachments: File[]) => void | Promise<void> }) {
+/** Correcting or withdrawing an update. Only the person who wrote it, or a
+ *  core member, sees these controls; the server enforces the same rule. */
+function UpdateActions({ jobId, updateId, message, canManage, editUpdate, withdrawUpdate }: { jobId: string; updateId: string; message: string; canManage: boolean; editUpdate: (jobId: string, updateId: string, message: string) => Promise<boolean>; withdrawUpdate: (jobId: string, updateId: string) => Promise<boolean> }) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(message);
+  const [busy, setBusy] = useState(false);
+  if (!canManage) return null;
+  if (editing) {
+    return <div className="updateEditRow">
+      <textarea value={draft} onChange={event => setDraft(event.target.value)} maxLength={500} aria-label="Correct this update" />
+      <div>
+        <button type="button" className="primaryAction" disabled={busy || !draft.trim() || draft.trim() === message} onClick={() => { setBusy(true); void editUpdate(jobId, updateId, draft.trim()).then(ok => { if (ok) setEditing(false); }).finally(() => setBusy(false)); }}>{busy ? "Saving…" : "Save correction"}</button>
+        <button type="button" className="secondaryAction" disabled={busy} onClick={() => { setDraft(message); setEditing(false); }}>Cancel</button>
+      </div>
+    </div>;
+  }
+  return <div className="updateActions">
+    <button type="button" onClick={() => { setDraft(message); setEditing(true); }}>Correct</button>
+    <button type="button" className="updateWithdraw" disabled={busy} onClick={() => { if (!window.confirm("Withdraw this update? It disappears from the activity for everyone, and any photo on it is deleted. The original wording stays in the audit log.")) return; setBusy(true); void withdrawUpdate(jobId, updateId).finally(() => setBusy(false)); }}>Withdraw</button>
+  </div>;
+}
+
+function JobSheet({ job, user, sectionHeading, focusUpdateId, close, save, editUpdate, withdrawUpdate }: { job: EventJob; user: EventUser; sectionHeading?: string; focusUpdateId?: string | null; close: () => void; save: (job: EventJob, updateMessage: string, attachments: File[], finishBy?: string | null) => void | Promise<void>; editUpdate: (jobId: string, updateId: string, message: string) => Promise<boolean>; withdrawUpdate: (jobId: string, updateId: string) => Promise<boolean> }) {
   useSheetHistory(close);
   const focusedUpdate = focusUpdateId ? job.updates.find(item => item.id === focusUpdateId) ?? null : null;
   const editable = canEditJob(user, job.ownerIds); const [organised, setOrganised] = useState(job.organised); const [complete, setComplete] = useState(job.complete); const [update, setUpdate] = useState(""); const [attachments, setAttachments] = useState<File[]>([]); const [mediaIssue, setMediaIssue] = useState(""); const [saving, setSaving] = useState(false);
-  async function submit(event: FormEvent) { event.preventDefault(); const issue = validateMediaSelection(attachments); if (issue) { setMediaIssue(issue); return; } setSaving(true); try { await save({ ...job, organised, complete }, update.trim(), attachments); } finally { setSaving(false); } }
+  const [finishBy, setFinishBy] = useState(job.finishBy ? job.finishBy.slice(0, 10) : "");
+  const finishByChanged = user.isCore && finishBy !== (job.finishBy ? job.finishBy.slice(0, 10) : "");
+  async function submit(event: FormEvent) { event.preventDefault(); const issue = validateMediaSelection(attachments); if (issue) { setMediaIssue(issue); return; } setSaving(true); try { await save({ ...job, organised, complete }, update.trim(), attachments, finishByChanged ? (finishBy || null) : undefined); } finally { setSaving(false); } }
   function chooseMedia(files: FileList | null) { const selected = files ? Array.from(files) : []; const issue = validateMediaSelection(selected); setMediaIssue(issue || ""); if (!issue) setAttachments(selected); }
   if (focusedUpdate) {
     const others = job.updates.filter(item => item.id !== focusedUpdate.id);
-    return <div className="sheetLayer" role="presentation"><button className="sheetShade" aria-label="Close update" onClick={close} /><section className="jobSheet" role="dialog" aria-modal="true" aria-labelledby="job-title"><header><button className="sheetBack" onClick={close}>‹ Back</button><div><p className="eyebrow">Update · {sectionHeading || "Event Work"}</p><h2 id="job-title">{job.title}</h2></div><button aria-label="Close" onClick={close}>×</button></header><div className="sheetBody"><article className="updatePost"><header><span className="initialBadge">{initialsFor(focusedUpdate.author)}</span><span><b>{focusedUpdate.author}</b><small>{focusedUpdate.at}</small></span></header><p className="updateMessage">{focusedUpdate.message}</p>{focusedUpdate.attachments.length > 0 && <MediaGrid attachments={focusedUpdate.attachments} />}</article>{others.length > 0 && <div className="sheetUpdates"><p className="eyebrow">More updates on this activity</p>{others.map(item => <article key={item.id}><b>{item.author}</b><span>{item.message}</span>{item.attachments.length > 0 && <MediaGrid attachments={item.attachments} />}<small>{item.at}</small></article>)}</div>}</div></section></div>;
+    return <div className="sheetLayer" role="presentation"><button className="sheetShade" aria-label="Close update" onClick={close} /><section className="jobSheet" role="dialog" aria-modal="true" aria-labelledby="job-title"><header><button className="sheetBack" onClick={close}>‹ Back</button><div><p className="eyebrow">Update · {sectionHeading || "Event Work"}</p><h2 id="job-title">{job.title}</h2></div><button aria-label="Close" onClick={close}>×</button></header><div className="sheetBody"><article className="updatePost"><header><span className="initialBadge">{initialsFor(focusedUpdate.author)}</span><span><b>{focusedUpdate.author}</b><small>{focusedUpdate.at}</small></span></header><p className="updateMessage">{focusedUpdate.message}</p>{focusedUpdate.attachments.length > 0 && <MediaGrid attachments={focusedUpdate.attachments} />}<UpdateActions jobId={job.id} updateId={focusedUpdate.id} message={focusedUpdate.message} canManage={user.isCore || focusedUpdate.author === user.fullName} editUpdate={editUpdate} withdrawUpdate={withdrawUpdate} /></article>{others.length > 0 && <div className="sheetUpdates"><p className="eyebrow">More updates on this activity</p>{others.map(item => <article key={item.id}><b>{item.author}</b><span>{item.message}</span>{item.attachments.length > 0 && <MediaGrid attachments={item.attachments} />}<small>{item.at}</small></article>)}</div>}</div></section></div>;
   }
-  return <div className="sheetLayer" role="presentation"><button className="sheetShade" aria-label="Close activity" onClick={close} /><section className="jobSheet" role="dialog" aria-modal="true" aria-labelledby="job-title"><header><button className="sheetBack" onClick={close}>‹ Back</button><div><p className="eyebrow">Activity details</p><h2 id="job-title">{job.title}</h2></div><button aria-label="Close" onClick={close}>×</button></header><div className="sheetBody"><dl>{sectionHeading && <div><dt>Section</dt><dd>{sectionHeading}</dd></div>}<div><dt>Status</dt><dd><span className={`ocChip o mini ${organised ? "on" : ""}`}>O · Organised</span> <span className={`ocChip c mini ${complete ? "on" : ""}`}>C · Complete</span></dd></div><div><dt>Responsible</dt><dd>{job.ownerLabel}</dd></div><div><dt>Finish by</dt><dd>{job.finishBy ? new Date(job.finishBy).toLocaleDateString("en-IN", { day: "numeric", month: "long", year: "numeric" }) : "No date set"}</dd></div><div><dt>Where</dt><dd>{job.venue === "general" ? "Both event teams" : job.venue === "malur" ? "YIL Malur · 15 November" : "Taj West End · 18 November"}</dd></div></dl>{job.blockingNote && <div className="warningBox"><b>Blocked</b><span>{job.blockingNote}</span></div>}<form onSubmit={submit}><fieldset disabled={!editable || saving}><legend>Progress</legend><label className="checkRow"><input type="checkbox" checked={organised} onChange={event => setOrganised(event.target.checked)} /><span><b>Organised</b><small>The arrangement has been made.</small></span></label><label className="checkRow"><input type="checkbox" checked={complete} onChange={event => setComplete(event.target.checked)} /><span><b>Complete</b><small>The work is finished and checked.</small></span></label><label className="updateField"><span>Post an update</span><textarea value={update} onChange={event => setUpdate(event.target.value)} placeholder="What has changed?" maxLength={500} /></label><label className="mediaPicker"><input type="file" accept="image/jpeg,image/png,image/webp,image/heic,image/heif,video/mp4,video/quicktime,video/webm" multiple onChange={event => chooseMedia(event.target.files)} /><span><b>＋ Add photos or video</b><small>Up to 3 files · 50 MB total</small></span></label>{attachments.length > 0 && <div className="selectedMedia">{attachments.map((file, index) => <span key={`${file.name}-${file.lastModified}`}><b>{file.name}</b><small>{(file.size / 1024 / 1024).toFixed(1)} MB</small><button type="button" aria-label={`Remove ${file.name}`} onClick={() => setAttachments(items => items.filter((_, itemIndex) => itemIndex !== index))}>×</button></span>)}</div>}<p className="mediaIssue" role={mediaIssue ? "alert" : "status"}>{mediaIssue}</p></fieldset>{editable ? <button className="primaryAction" type="submit" disabled={saving || Boolean(mediaIssue)}>{saving ? "Saving and uploading…" : "Save activity"}</button> : <p className="readOnlyNote">You can read this activity. Only the assigned person or core committee can change it.</p>}</form>{job.updates.length > 0 && <div className="sheetUpdates"><p className="eyebrow">Updates</p>{job.updates.map(item => <article key={item.id}><b>{item.author}</b><span>{item.message}</span>{item.attachments.length > 0 && <MediaGrid attachments={item.attachments} />}<small>{item.at}</small></article>)}</div>}</div></section></div>;
+  return <div className="sheetLayer" role="presentation"><button className="sheetShade" aria-label="Close activity" onClick={close} /><section className="jobSheet" role="dialog" aria-modal="true" aria-labelledby="job-title"><header><button className="sheetBack" onClick={close}>‹ Back</button><div><p className="eyebrow">Activity details</p><h2 id="job-title">{job.title}</h2></div><button aria-label="Close" onClick={close}>×</button></header><div className="sheetBody"><dl>{sectionHeading && <div><dt>Section</dt><dd>{sectionHeading}</dd></div>}<div><dt>Status</dt><dd><span className={`ocChip o mini ${organised ? "on" : ""}`}>O · Organised</span> <span className={`ocChip c mini ${complete ? "on" : ""}`}>C · Complete</span></dd></div><div><dt>Responsible</dt><dd>{job.ownerLabel}</dd></div><div><dt>Finish by</dt><dd>{user.isCore ? <input className="finishByInput" type="date" value={finishBy} onChange={event => setFinishBy(event.target.value)} aria-label="Finish by date" /> : job.finishBy ? new Date(job.finishBy).toLocaleDateString("en-IN", { day: "numeric", month: "long", year: "numeric" }) : "No date set"}</dd></div><div><dt>Where</dt><dd>{job.venue === "general" ? "Both event teams" : job.venue === "malur" ? "YIL Malur · 15 November" : "Taj West End · 18 November"}</dd></div></dl>{job.blockingNote && <div className="warningBox"><b>Blocked</b><span>{job.blockingNote}</span></div>}<form onSubmit={submit}><fieldset disabled={!editable || saving}><legend>Progress</legend><label className="checkRow"><input type="checkbox" checked={organised} onChange={event => setOrganised(event.target.checked)} /><span><b>Organised</b><small>The arrangement has been made.</small></span></label><label className="checkRow"><input type="checkbox" checked={complete} onChange={event => setComplete(event.target.checked)} /><span><b>Complete</b><small>The work is finished and checked.</small></span></label><label className="updateField"><span>Post an update</span><textarea value={update} onChange={event => setUpdate(event.target.value)} placeholder="What has changed?" maxLength={500} /></label><label className="mediaPicker"><input type="file" accept="image/jpeg,image/png,image/webp,image/heic,image/heif,video/mp4,video/quicktime,video/webm" multiple onChange={event => chooseMedia(event.target.files)} /><span><b>＋ Add photos or video</b><small>Up to 3 files · 50 MB total</small></span></label>{attachments.length > 0 && <div className="selectedMedia">{attachments.map((file, index) => <span key={`${file.name}-${file.lastModified}`}><b>{file.name}</b><small>{(file.size / 1024 / 1024).toFixed(1)} MB</small><button type="button" aria-label={`Remove ${file.name}`} onClick={() => setAttachments(items => items.filter((_, itemIndex) => itemIndex !== index))}>×</button></span>)}</div>}<p className="mediaIssue" role={mediaIssue ? "alert" : "status"}>{mediaIssue}</p></fieldset>{editable ? <button className="primaryAction" type="submit" disabled={saving || Boolean(mediaIssue)}>{saving ? "Saving and uploading…" : "Save activity"}</button> : finishByChanged ? <button className="primaryAction" type="submit" disabled={saving}>{saving ? "Saving…" : "Save the finish-by date"}</button> : <p className="readOnlyNote">You can read this activity. Only the assigned person or core committee can change it.</p>}</form>{job.updates.length > 0 && <div className="sheetUpdates"><p className="eyebrow">Updates</p>{job.updates.map(item => <article key={item.id}><b>{item.author}</b><span>{item.message}</span>{item.attachments.length > 0 && <MediaGrid attachments={item.attachments} />}<small>{item.at}</small><UpdateActions jobId={job.id} updateId={item.id} message={item.message} canManage={user.isCore || item.author === user.fullName} editUpdate={editUpdate} withdrawUpdate={withdrawUpdate} /></article>)}</div>}</div></section></div>;
 }
 
 function MediaGrid({ attachments }: { attachments: EventJob["updates"][number]["attachments"] }) {

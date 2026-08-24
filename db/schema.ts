@@ -78,6 +78,7 @@ export const jobUpdates = sqliteTable("job_updates", {
   jobId: text("job_id").notNull().references(() => jobs.id, { onDelete: "cascade" }),
   authorId: text("author_id").notNull().references(() => people.id),
   message: text("message").notNull(),
+  editedAt: text("edited_at"),
   createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
 }, table => [index("idx_job_updates_job_created").on(table.jobId, table.createdAt)]);
 

@@ -116,11 +116,17 @@ export async function applyMasterPayload(payload: MasterPayload): Promise<Import
   const guest = normalizeGuestPayload(payload.guest, peopleByInitials);
   const guestApplied = guest.categories.length + guest.groups.length + guest.guests.length + guest.agenda.length + guest.plans.length + guest.stops.length + guest.hotels.length;
   const json = (rows: unknown[]) => JSON.stringify(rows);
+  // A person who has already chosen their own PIN keeps it for ever. A person
+  // who never changed it (must_change_pin=1) has their PIN refreshed to the
+  // current INITIAL_LOGIN_PIN on every import — that is the only way back in
+  // if the starting PIN is rotated, and it can never overwrite a chosen PIN.
   const statements: D1PreparedStatement[] = [
     database.prepare("INSERT INTO sync_batches (id, source, source_version, status, summary, created_at) VALUES (?, ?, ?, 'updating', ?, ?)").bind(batchId, payload.source, payload.sourceVersion, "Master import started", now),
     database.prepare(`INSERT INTO people (id, initials, full_name, responsibility, employee_number, phone, is_core, active, pin_hash, pin_salt, must_change_pin, source_updated_at, created_at, updated_at)
       SELECT json_extract(value,'$.id'), json_extract(value,'$.initials'), json_extract(value,'$.fullName'), json_extract(value,'$.responsibility'), json_extract(value,'$.employeeNumber'), json_extract(value,'$.phone'), json_extract(value,'$.isCore'), 1, json_extract(value,'$.pinHash'), json_extract(value,'$.pinSalt'), 1, ?, ?, ? FROM json_each(?) WHERE 1
-      ON CONFLICT(id) DO UPDATE SET initials=excluded.initials, full_name=excluded.full_name, responsibility=excluded.responsibility, employee_number=excluded.employee_number, phone=excluded.phone, is_core=excluded.is_core, active=1, source_updated_at=excluded.source_updated_at, updated_at=excluded.updated_at`).bind(batchId, now, now, json(peopleRows)),
+      ON CONFLICT(id) DO UPDATE SET initials=excluded.initials, full_name=excluded.full_name, responsibility=excluded.responsibility, employee_number=excluded.employee_number, phone=excluded.phone, is_core=excluded.is_core, active=1, source_updated_at=excluded.source_updated_at, updated_at=excluded.updated_at,
+        pin_hash=CASE WHEN people.must_change_pin=1 THEN excluded.pin_hash ELSE people.pin_hash END,
+        pin_salt=CASE WHEN people.must_change_pin=1 THEN excluded.pin_salt ELSE people.pin_salt END`).bind(batchId, now, now, json(peopleRows)),
     database.prepare(`INSERT INTO sections (id, section_number, heading, active, source_updated_at, created_at, updated_at)
       SELECT json_extract(value,'$.id'), json_extract(value,'$.number'), json_extract(value,'$.heading'), 1, ?, ?, ? FROM json_each(?) WHERE 1
       ON CONFLICT(id) DO UPDATE SET section_number=excluded.section_number, heading=excluded.heading, active=1, source_updated_at=excluded.source_updated_at, updated_at=excluded.updated_at`).bind(batchId, now, now, json(sectionRows)),

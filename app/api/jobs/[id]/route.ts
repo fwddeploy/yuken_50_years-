@@ -13,7 +13,7 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
   if (!await mayEditJob(user, id)) return Response.json({ error: "You can read this activity, but it is not assigned to you." }, { status: 403 });
   const contentType = request.headers.get("content-type") ?? "";
   const files: File[] = [];
-  let body: { organised?: boolean; complete?: boolean; blockingNote?: string; updateMessage?: string; expectedUpdatedAt?: string };
+  let body: { organised?: boolean; complete?: boolean; blockingNote?: string; updateMessage?: string; expectedUpdatedAt?: string; finishBy?: string | null };
   if (contentType.includes("multipart/form-data")) {
     const form = await request.formData();
     body = {
@@ -22,6 +22,7 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
       blockingNote: String(form.get("blockingNote") ?? ""),
       updateMessage: String(form.get("updateMessage") ?? ""),
       expectedUpdatedAt: String(form.get("expectedUpdatedAt") ?? "") || undefined,
+      finishBy: form.has("finishBy") ? (String(form.get("finishBy") ?? "") || null) : undefined,
     };
     for (const item of form.getAll("attachments")) if (item instanceof File && item.size > 0) files.push(item);
   } else {
@@ -31,6 +32,14 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
   const blockingNote = body.blockingNote?.trim() ?? "";
   const updateMessage = body.updateMessage?.trim() ?? "";
   if (blockingNote.length > 500 || updateMessage.length > 500) return Response.json({ error: "Updates must be 500 characters or fewer." }, { status: 400 });
+  // The finish-by date is the committee's own planning field, so only a core
+  // member may move it; the Master Sheet remains the other way to set it.
+  const finishByGiven = body.finishBy !== undefined;
+  const finishBy = body.finishBy?.trim() || null;
+  if (finishByGiven) {
+    if (!user.isCore) return Response.json({ error: "Only the core committee can change the finish-by date." }, { status: 403 });
+    if (finishBy && !/^\d{4}-\d{2}-\d{2}$/u.test(finishBy)) return Response.json({ error: "Use a finish-by date in YYYY-MM-DD form, or clear it." }, { status: 400 });
+  }
   const mediaIssue = validateMediaSelection(files);
   if (mediaIssue) return Response.json({ error: mediaIssue }, { status: 400 });
   for (const file of files) {
@@ -45,6 +54,7 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
   const now = new Date().toISOString();
   const after = { organised: body.organised, complete: body.complete, blockingNote, updatedBy: user.personId, updatedAt: now };
   const stateWrite = db.insert(jobStates).values({ jobId: id, ...after }).onConflictDoUpdate({ target: jobStates.jobId, set: after });
+  const finishByWrite = finishByGiven ? db.update(jobs).set({ finishBy, updatedAt: now }).where(eq(jobs.id, id)) : null;
   const updateId = updateMessage || files.length ? crypto.randomUUID() : null;
   const attachmentRows = files.map(file => {
     const attachmentId = crypto.randomUUID();
@@ -64,17 +74,18 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
       const message = updateMessage || (files.every(file => file.type.startsWith("image/")) ? `Shared ${files.length} photo${files.length === 1 ? "" : "s"}.` : `Shared ${files.length} photo or video file${files.length === 1 ? "" : "s"}.`);
       await db.batch([
         stateWrite,
+        ...(finishByWrite ? [finishByWrite] : []),
         auditWrite,
         db.insert(jobUpdates).values({ id: updateId, jobId: id, authorId: user.personId, message, createdAt: now }),
         ...attachmentRows.map(row => db.insert(jobUpdateAttachments).values({ id: row.id, updateId: row.updateId, objectKey: row.objectKey, fileName: row.fileName, contentType: row.contentType, sizeBytes: row.sizeBytes, uploadedBy: row.uploadedBy, createdAt: row.createdAt })),
       ]);
     } else {
-      await db.batch([stateWrite, auditWrite]);
+      await db.batch(finishByWrite ? [stateWrite, finishByWrite, auditWrite] : [stateWrite, auditWrite]);
     }
   } catch (error) {
     if (bucket) await Promise.allSettled(uploadedKeys.map(key => bucket.delete(key)));
     console.error("Activity save failed", error);
     return Response.json({ error: "Activity could not be saved. No attachment was retained." }, { status: 500 });
   }
-  return Response.json({ jobId: id, ...after, updateId, attachmentCount: attachmentRows.length }, { headers: { "Cache-Control": "no-store" } });
+  return Response.json({ jobId: id, ...after, ...(finishByGiven ? { finishBy } : {}), updateId, attachmentCount: attachmentRows.length }, { headers: { "Cache-Control": "no-store" } });
 }
