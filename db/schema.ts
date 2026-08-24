@@ -23,8 +23,11 @@ export const people = sqliteTable("people", {
   sourceUpdatedAt: text("source_updated_at"),
   ...timestamps,
 }, table => [
-  uniqueIndex("uidx_people_initials").on(table.initials),
-  uniqueIndex("uidx_people_employee_number").on(table.employeeNumber),
+  // Uniqueness applies to people who can still sign in. An archived person
+  // keeps their row for the audit trail but stops reserving the number, so a
+  // Master Sheet import can hand it to somebody else.
+  uniqueIndex("uidx_people_initials_active").on(table.initials).where(sql`active = 1`),
+  uniqueIndex("uidx_people_employee_number_active").on(table.employeeNumber).where(sql`active = 1`),
   index("idx_people_active").on(table.active),
 ]);
 

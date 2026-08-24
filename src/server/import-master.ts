@@ -144,6 +144,21 @@ export async function applyMasterPayload(payload: MasterPayload, appliedBy?: str
   // if the starting PIN is rotated, and it can never overwrite a chosen PIN.
   const statements: D1PreparedStatement[] = [
     database.prepare("INSERT INTO sync_batches (id, source, source_version, status, summary, created_at) VALUES (?, ?, ?, 'updating', ?, ?)").bind(batchId, payload.source, payload.sourceVersion, "Master import started", now),
+    // Business keys — a sign-in number, a section number, a category or hotel
+    // or route name — are unique among ACTIVE rows. A Master Sheet legitimately
+    // hands the same section number or employee number to a different person
+    // than the one holding it today, so the departing rows have to stand down
+    // before the arriving ones are written. Doing this after the inserts, as
+    // the archive pass below does, makes both rows briefly live at once and the
+    // whole import is rejected. Rows the app owns are never touched here.
+    database.prepare("UPDATE people SET active=0, updated_at=? WHERE active=1 AND id NOT IN (SELECT json_extract(value,'$.id') FROM json_each(?))").bind(now, json(peopleRows)),
+    database.prepare("UPDATE sections SET active=0, updated_at=? WHERE active=1 AND id NOT IN (SELECT json_extract(value,'$.id') FROM json_each(?))").bind(now, json(sectionRows)),
+    database.prepare("UPDATE jobs SET active=0, updated_at=? WHERE active=1 AND id NOT IN (SELECT json_extract(value,'$.id') FROM json_each(?))").bind(now, json(jobRows)),
+    database.prepare("UPDATE guest_categories SET active=0, updated_at=? WHERE active=1 AND source_updated_at<>'app' AND id NOT IN (SELECT json_extract(value,'$.id') FROM json_each(?))").bind(now, json(guest.categories)),
+    database.prepare("UPDATE guest_groups SET active=0, updated_at=? WHERE active=1 AND source_updated_at<>'app' AND id NOT IN (SELECT json_extract(value,'$.id') FROM json_each(?))").bind(now, json(guest.groups)),
+    database.prepare("UPDATE travel_plans SET active=0, updated_at=? WHERE active=1 AND source_updated_at<>'app' AND id NOT IN (SELECT json_extract(value,'$.id') FROM json_each(?))").bind(now, json(guest.plans)),
+    database.prepare("UPDATE travel_stops SET active=0, updated_at=? WHERE active=1 AND source_updated_at<>'app' AND id NOT IN (SELECT json_extract(value,'$.id') FROM json_each(?))").bind(now, json(guest.stops)),
+    database.prepare("UPDATE hotels SET active=0, updated_at=? WHERE active=1 AND source_updated_at<>'app' AND id NOT IN (SELECT json_extract(value,'$.id') FROM json_each(?))").bind(now, json(guest.hotels)),
     database.prepare(`INSERT INTO people (id, initials, full_name, responsibility, employee_number, phone, is_core, active, pin_hash, pin_salt, must_change_pin, source_updated_at, created_at, updated_at)
       SELECT json_extract(value,'$.id'), json_extract(value,'$.initials'), json_extract(value,'$.fullName'), json_extract(value,'$.responsibility'), json_extract(value,'$.employeeNumber'), json_extract(value,'$.phone'), json_extract(value,'$.isCore'), 1, json_extract(value,'$.pinHash'), json_extract(value,'$.pinSalt'), 1, ?, ?, ? FROM json_each(?) WHERE 1
       ON CONFLICT(id) DO UPDATE SET initials=excluded.initials, full_name=excluded.full_name, responsibility=excluded.responsibility, employee_number=excluded.employee_number, phone=excluded.phone, is_core=excluded.is_core, active=1, source_updated_at=excluded.source_updated_at, updated_at=excluded.updated_at,

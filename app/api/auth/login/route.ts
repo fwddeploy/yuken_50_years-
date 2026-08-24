@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { getDb } from "../../../../db";
 import { auditEvents, people, sessions } from "../../../../db/schema";
 import { createSessionToken, hashSessionToken, verifyPin } from "../../../../src/security/crypto";
@@ -16,7 +16,9 @@ export async function POST(request: Request) {
     if (!/^\d{1,20}$/u.test(employeeNumber) || !/^\d{4}$/u.test(pin)) return invalidCredentials();
 
     const db = getDb();
-    const [person] = await db.select().from(people).where(eq(people.employeeNumber, employeeNumber)).limit(1);
+    // A sign-in number is unique only among active people now, because an
+    // archived person must not keep reserving it. Always resolve the live one.
+    const [person] = await db.select().from(people).where(and(eq(people.employeeNumber, employeeNumber), eq(people.active, true))).limit(1);
     const now = new Date();
     if (!person || !person.active || (person.lockedUntil && new Date(person.lockedUntil) > now)) return invalidCredentials(person?.lockedUntil ? 429 : 401);
 
