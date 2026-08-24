@@ -110,8 +110,14 @@ test("all four guest message purposes are reachable in the UI and travel binds t
   assert.match(guestUi, /Send stay details/);
   assert.match(guestUi, /travelPlanId: plan\.id/);
   assert.match(guestUi, /travelPlanId: audience\.travelPlanId/);
-  assert.match(preflightRoute, /Choose the exact travel plan to send/);
-  assert.match(preflightRoute, /eq\(travelPlans\.id, travelPlanId!\)/);
+  // Travel sends bind either one exact plan (Travel tab) or a whole day
+  // (Mine tab), where each guest is matched to the plan covering their category.
+  assert.match(guestUi, /travelDate: selectedDate/);
+  assert.match(preflightRoute, /Choose the travel plan or the travel day to send/);
+  assert.match(preflightRoute, /eq\(travelPlans\.id, travelPlanId\)/);
+  assert.match(preflightRoute, /eq\(travelPlans\.travelDate, travelDate!\)/);
+  // Non-core senders are scoped to their own groups for every purpose.
+  assert.match(preflightRoute, /You can send messages only to guests in the groups you coordinate/);
 });
 
 test("no workbook or environment-secret file is present in the repository", async () => {

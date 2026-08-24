@@ -33,7 +33,11 @@ export async function PUT(request: Request, context: { params: Promise<{ id: str
   if (categories.length !== categoryIds.length) return Response.json({ error: "One or more selected categories are no longer available." }, { status: 409 });
   if (submittedStops.some(stop => stop.travelPlanId !== id)) return Response.json({ error: "One or more travel stops belong to another plan. Refresh and try again." }, { status: 409 });
   const sameDayPlans = await db.select({ planId: travelPlans.id, categoryId: travelPlanCategories.categoryId }).from(travelPlanCategories).innerJoin(travelPlans, eq(travelPlans.id, travelPlanCategories.travelPlanId)).where(and(eq(travelPlans.event, event), eq(travelPlans.travelDate, date), eq(travelPlans.active, true), inArray(travelPlanCategories.categoryId, categoryIds)));
-  if (sameDayPlans.some(row => row.planId !== id)) return Response.json({ error: "A selected category already has another travel plan for this event and date." }, { status: 409 });
+  const conflictingIds = new Set(sameDayPlans.filter(row => row.planId !== id).map(row => row.categoryId));
+  if (conflictingIds.size) {
+    const names = categories.filter(category => conflictingIds.has(category.id)).map(category => category.name).join(", ");
+    return Response.json({ error: `${names || "A selected category"} already ${conflictingIds.size === 1 ? "has" : "have"} another travel plan for this event and date. Untick ${conflictingIds.size === 1 ? "it" : "them"} or edit that plan instead.` }, { status: 409 });
+  }
 
   const now = new Date().toISOString();
   const database = getRuntimeEnv().DB;

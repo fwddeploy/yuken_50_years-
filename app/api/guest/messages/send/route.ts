@@ -1,6 +1,6 @@
 import { and, eq, inArray, sql } from "drizzle-orm";
 import { getDb } from "../../../../../db";
-import { auditEvents, guestEventInvitations, guestInvitationRsvpTokens, messageBatches, messageRecipients, messageTemplates } from "../../../../../db/schema";
+import { auditEvents, guestEventInvitations, guestInvitationRsvpTokens, guests, messageBatches, messageRecipients, messageTemplates } from "../../../../../db/schema";
 import { renderTemplate, type GuestLanguage } from "../../../../../src/domain/guest-contract";
 import { createPublicToken, hashPublicToken } from "../../../../../src/security/crypto";
 import { deliverEmail, deliveryConfiguration, deliverWhatsApp } from "../../../../../src/server/message-delivery";
@@ -41,6 +41,9 @@ export async function POST(request: Request) {
   const templateIds = [...new Set(recipients.map(item => item.templateId).filter((id): id is string => Boolean(id)))];
   const templates = templateIds.length ? await db.select().from(messageTemplates).where(inArray(messageTemplates.id, templateIds)) : [];
   const templateById = new Map(templates.map(template => [template.id, template]));
+  // Minutes can pass between review and send; a guest archived in that window
+  // must not be messaged — re-check active for EVERY purpose, not just invitations.
+  const activeGuestIds = new Set((await db.select({ id: guests.id }).from(guests).where(and(inArray(guests.id, recipients.map(item => item.guestId)), eq(guests.active, true)))).map(row => row.id));
   await db.update(messageBatches).set({ status: "processing" }).where(eq(messageBatches.id, batchId));
 
   let processed = 0;
@@ -54,6 +57,10 @@ export async function POST(request: Request) {
     if ((claimed.meta.changes ?? 0) !== 1) continue;
     processed += 1;
 
+    if (!activeGuestIds.has(recipient.guestId)) {
+      await failRecipient(recipient.id, "This guest was removed from active coordination after the review.");
+      continue;
+    }
     const template = recipient.templateId ? templateById.get(recipient.templateId) : undefined;
     if (!template || template.status !== "approved") {
       await failRecipient(recipient.id, "The approved message template changed after review.");

@@ -1,7 +1,7 @@
 import { and, eq } from "drizzle-orm";
 import { getDb } from "../../db";
 import { guestCategories, guestGroups } from "../../db/schema";
-import { parseGuestLanguage, type GuestEvent } from "../domain/guest-contract";
+import { parseGuestLanguage, sendablePhone, type GuestEvent } from "../domain/guest-contract";
 
 export type GuestWriteInput = {
   name?: string;
@@ -22,8 +22,10 @@ export async function validateGuestWrite(body: GuestWriteInput) {
   const groupId = body.groupId?.trim() || null;
   const country = body.country?.trim() || "India";
   const preferredLanguage = parseGuestLanguage(body.preferredLanguage ?? "");
-  const phone = body.phone?.trim() || null;
+  const rawPhone = body.phone?.trim() || null;
+  const phone = rawPhone ? sendablePhone(rawPhone) : null;
   const email = body.email?.trim().toLocaleLowerCase("en-IN") || null;
+  if (rawPhone && !phone) throw new GuestWriteError("Enter the WhatsApp number as digits only — 10 digits for India, or +country code and number.");
   const events = [...new Set(body.events ?? [])].filter((event): event is GuestEvent => event === "malur" || event === "taj");
   if (!name || !categoryId || !preferredLanguage) throw new GuestWriteError("Guest name, category and preferred language are required.");
   if (!events.length) throw new GuestWriteError("Select Malur, Taj or both.");

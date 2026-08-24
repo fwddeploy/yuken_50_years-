@@ -8,8 +8,9 @@ import { previewUser, type EventUser } from "../src/demo/event-preview";
 import { previewGuestSnapshot, type GuestAgendaItem, type GuestGroup, type GuestRecord, type GuestSnapshot, type GuestTravelPlan } from "../src/demo/guest-preview";
 
 type GuestTab = "mine" | "invitations" | "guests" | "travel" | "stays";
-type SendAudience = { title: string; purpose: MessagePurpose; guests: GuestRecord[]; group?: GuestGroup; date?: string; event?: GuestEvent; travelPlanId?: string };
+type SendAudience = { title: string; purpose: MessagePurpose; guests: GuestRecord[]; group?: GuestGroup; date?: string; event?: GuestEvent; travelPlanId?: string; travelDate?: string };
 type EventTeamMember = { id: string; initials: string; fullName: string };
+type StrandedBatch = { id: string; purpose: MessagePurpose; channel: MessageChannel; event?: string | null; agendaDate?: string | null; createdAt: string; remaining: number; accepted: number; failed: number; skipped: number };
 
 const guestTabs: { id: GuestTab; icon: string; label: string }[] = [
   { id: "mine", icon: "◎", label: "Mine" },
@@ -28,7 +29,18 @@ export default function GuestCoordinationApp({ user, team, back, signOut, openSy
   const [loading, setLoading] = useState(!preview);
   const [sendAudience, setSendAudience] = useState<SendAudience | null>(null);
   const [sheetSyncOpen, setSheetSyncOpen] = useState(Boolean(openSyncOnMount && user.isCore));
+  const [stranded, setStranded] = useState<StrandedBatch[]>([]);
+  const [strandedOpen, setStrandedOpen] = useState(false);
   const [toast, setToast] = useState("");
+
+  async function loadStranded() {
+    if (preview) return;
+    try {
+      const response = await fetch("/api/guest/messages/batches", { cache: "no-store" });
+      const payload = await response.json() as { batches?: StrandedBatch[] };
+      if (response.ok) setStranded(payload.batches ?? []);
+    } catch { /* a quiet check — the next send refreshes it */ }
+  }
   const consumeSyncIntentRef = useRef(consumeSyncIntent);
   useEffect(() => { consumeSyncIntentRef.current = consumeSyncIntent; });
   useEffect(() => { consumeSyncIntentRef.current?.(); }, []);
@@ -70,6 +82,10 @@ export default function GuestCoordinationApp({ user, team, back, signOut, openSy
       if (!response.ok) throw new Error(payload.error || "Guest coordination could not be loaded.");
       setSnapshot(payload);
     }).catch(error => setToast(error instanceof Error ? error.message : "Guest coordination could not be loaded.")).finally(() => setLoading(false));
+    fetch("/api/guest/messages/batches", { cache: "no-store" }).then(async response => {
+      const payload = await response.json() as { batches?: StrandedBatch[] };
+      if (response.ok) setStranded(payload.batches ?? []);
+    }).catch(() => undefined);
   }, [preview]);
 
   useEffect(() => {
@@ -78,18 +94,18 @@ export default function GuestCoordinationApp({ user, team, back, signOut, openSy
     return () => window.clearTimeout(timer);
   }, [toast]);
 
-  async function saveGuest(next: GuestRecord) {
+  async function saveGuest(next: GuestRecord, rsvps?: { event: GuestEvent; status: string }[]) {
     if (preview) {
       setSnapshot(value => ({ ...value, guests: value.guests.some(item => item.id === next.id) ? value.guests.map(item => item.id === next.id ? next : item) : [...value.guests, next] }));
-      setToast("Guest saved in this local preview."); return;
+      setToast("Guest saved in this local preview."); return true;
     }
     try {
       const exists = snapshot.guests.some(item => item.id === next.id);
-      const response = await fetch(exists ? `/api/guest/guests/${encodeURIComponent(next.id)}` : "/api/guest/guests", { method: exists ? "PATCH" : "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: next.name, company: next.company, categoryId: next.categoryId, groupId: next.groupId, country: next.country, preferredLanguage: next.preferredLanguage, phone: next.phone, email: next.email, events: next.invitations.filter(item => item.invited).map(item => item.event) }) });
+      const response = await fetch(exists ? `/api/guest/guests/${encodeURIComponent(next.id)}` : "/api/guest/guests", { method: exists ? "PATCH" : "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: next.name, company: next.company, categoryId: next.categoryId, groupId: next.groupId, country: next.country, preferredLanguage: next.preferredLanguage, phone: next.phone, email: next.email, events: next.invitations.filter(item => item.invited).map(item => item.event), ...(exists && rsvps?.length ? { rsvps } : {}) }) });
       const payload = await response.json() as { error?: string };
       if (!response.ok) throw new Error(payload.error || "Guest could not be saved.");
-      await loadSnapshot(); setToast("Guest saved.");
-    } catch (error) { setToast(error instanceof Error ? error.message : "Guest could not be saved."); }
+      await loadSnapshot(); setToast("Guest saved."); return true;
+    } catch (error) { setToast(error instanceof Error ? error.message : "Guest could not be saved."); return false; }
   }
 
   async function archiveGuest(id: string) {
@@ -108,40 +124,53 @@ export default function GuestCoordinationApp({ user, team, back, signOut, openSy
         const response = await fetch(`/api/guest/stays/${encodeURIComponent(guestId)}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ hotelId, roomNumber }) });
         const payload = await response.json() as { error?: string };
         if (!response.ok) throw new Error(payload.error || "Stay could not be saved.");
-        await loadSnapshot(); setToast("Stay saved.");
-      } catch (error) { setToast(error instanceof Error ? error.message : "Stay could not be saved."); }
-      return;
+        await loadSnapshot(); setToast("Stay saved."); return true;
+      } catch (error) { setToast(error instanceof Error ? error.message : "Stay could not be saved."); return false; }
     }
     const hotel = snapshot.hotels.find(item => item.id === hotelId);
-    if (!hotel) return;
+    if (!hotel) return false;
     setSnapshot(value => ({ ...value, guests: value.guests.map(guest => guest.id === guestId ? { ...guest, stay: { hotelId, hotelName: hotel.name, roomNumber } } : guest) }));
     setToast("Stay saved in this local preview.");
+    return true;
+  }
+
+  async function removeStay(guestId: string) {
+    if (preview) {
+      setSnapshot(value => ({ ...value, guests: value.guests.map(guest => guest.id === guestId ? { ...guest, stay: undefined } : guest) }));
+      setToast("Stay removed in this local preview."); return true;
+    }
+    try {
+      const response = await fetch(`/api/guest/stays/${encodeURIComponent(guestId)}`, { method: "DELETE" });
+      const payload = await response.json() as { error?: string };
+      if (!response.ok) throw new Error(payload.error || "Stay could not be removed.");
+      await loadSnapshot(); setToast("Hotel and room removed for this guest."); return true;
+    } catch (error) { setToast(error instanceof Error ? error.message : "Stay could not be removed."); return false; }
   }
 
   async function saveAgenda(groupId: string, date: string, items: GuestAgendaItem[]) {
     if (preview) {
       setSnapshot(value => ({ ...value, groups: value.groups.map(group => group.id === groupId ? { ...group, agenda: [...group.agenda.filter(item => item.date !== date), ...items] } : group) }));
-      setToast("Agenda saved in this local preview."); return;
+      setToast("Agenda saved in this local preview."); return true;
     }
     try {
       const response = await fetch(`/api/guest/groups/${encodeURIComponent(groupId)}/agenda`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ date, items }) });
       const payload = await response.json() as { error?: string };
       if (!response.ok) throw new Error(payload.error || "Agenda could not be saved.");
-      await loadSnapshot(); setToast("Agenda saved.");
-    } catch (error) { setToast(error instanceof Error ? error.message : "Agenda could not be saved."); }
+      await loadSnapshot(); setToast("Agenda saved."); return true;
+    } catch (error) { setToast(error instanceof Error ? error.message : "Agenda could not be saved."); return false; }
   }
 
   async function saveTravel(next: GuestTravelPlan) {
     if (preview) {
       setSnapshot(value => ({ ...value, travelPlans: value.travelPlans.some(plan => plan.id === next.id) ? value.travelPlans.map(plan => plan.id === next.id ? next : plan) : [...value.travelPlans, next] }));
-      setToast("Travel plan saved in this local preview."); return;
+      setToast("Travel plan saved in this local preview."); return true;
     }
     try {
       const response = await fetch(`/api/guest/travel/${encodeURIComponent(next.id)}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: next.name, event: next.event, date: next.date, mode: next.mode, routeName: next.routeName, vehicleNumber: next.vehicleNumber, driverName: next.driverName, driverPhone: next.driverPhone, conductorName: next.conductorName, conductorPhone: next.conductorPhone, categoryIds: next.categories.map(category => category.id), stops: next.stops }) });
       const payload = await response.json() as { error?: string };
       if (!response.ok) throw new Error(payload.error || "Travel plan could not be saved.");
-      await loadSnapshot(); setToast("Travel plan saved.");
-    } catch (error) { setToast(error instanceof Error ? error.message : "Travel plan could not be saved."); }
+      await loadSnapshot(); setToast("Travel plan saved."); return true;
+    } catch (error) { setToast(error instanceof Error ? error.message : "Travel plan could not be saved."); return false; }
   }
 
   const title = { mine: "My guest groups", invitations: "Invitations", guests: "Guest directory", travel: "Guest travel", stays: "Hotels and rooms" }[tab];
@@ -153,14 +182,19 @@ export default function GuestCoordinationApp({ user, team, back, signOut, openSy
         {tab === "mine" && <MineView user={user} snapshot={snapshot} send={setSendAudience} saveAgenda={saveAgenda} saveTravel={saveTravel} />}
         {tab === "invitations" && <InvitationsView user={user} preview={preview} snapshot={snapshot} send={setSendAudience} notify={setToast} />}
         {tab === "guests" && <GuestsView snapshot={snapshot} save={saveGuest} archive={archiveGuest} />}
-        {tab === "travel" && <TravelView snapshot={snapshot} save={saveTravel} send={setSendAudience} />}
-        {tab === "stays" && <StaysView snapshot={snapshot} save={saveStay} send={setSendAudience} />}
+        {tab === "travel" && <TravelView user={user} snapshot={snapshot} save={saveTravel} send={setSendAudience} />}
+        {tab === "stays" && <StaysView user={user} snapshot={snapshot} save={saveStay} removeStay={removeStay} send={setSendAudience} />}
       </>}
     </div>
     <nav className="eventTabs guestTabs" aria-label="Guest coordination">
       {guestTabs.map(item => <button key={item.id} className={tab === item.id ? "active" : ""} aria-current={tab === item.id ? "page" : undefined} onClick={() => navigateGuestTab(item.id)}><span>{item.icon}</span>{item.label}</button>)}
     </nav>
-      {sendAudience && <SendSheet audience={sendAudience} snapshot={snapshot} preview={preview} close={() => setSendAudience(null)} notify={setToast} />}
+    {!sendAudience && !strandedOpen && stranded.length > 0 && <div className="updateBanner syncBanner">
+      <span><b>A send did not finish</b><small>{stranded.reduce((sum, batch) => sum + batch.remaining, 0)} messages still waiting · {stranded.reduce((sum, batch) => sum + batch.failed, 0)} failed</small></span>
+      <button onClick={() => setStrandedOpen(true)}>Review</button>
+    </div>}
+      {sendAudience && <SendSheet audience={sendAudience} snapshot={snapshot} preview={preview} close={() => { setSendAudience(null); void loadStranded(); }} notify={setToast} />}
+      {strandedOpen && <ResumeBatchSheet batches={stranded} close={() => { setStrandedOpen(false); void loadStranded(); }} notify={setToast} />}
       {sheetSyncOpen && <GoogleSheetsSyncSheet close={() => setSheetSyncOpen(false)} notify={setToast} />}
     {toast && <div className="toast" role="status">{toast}</div>}
   </main>;
@@ -179,7 +213,7 @@ function GuestLoading() {
   return <div className="guestLoading" role="status"><span className="miniMark">YIL <b>50</b></span><p>Loading guest coordination…</p></div>;
 }
 
-function MineView({ user, snapshot, send, saveAgenda, saveTravel }: { user: EventUser; snapshot: GuestSnapshot; send: (audience: SendAudience) => void; saveAgenda: (groupId: string, date: string, items: GuestAgendaItem[]) => void | Promise<void>; saveTravel: (plan: GuestTravelPlan) => void | Promise<void> }) {
+function MineView({ user, snapshot, send, saveAgenda, saveTravel }: { user: EventUser; snapshot: GuestSnapshot; send: (audience: SendAudience) => void; saveAgenda: (groupId: string, date: string, items: GuestAgendaItem[]) => Promise<boolean>; saveTravel: (plan: GuestTravelPlan) => Promise<boolean> }) {
   const groups = useMemo(() => snapshot.groups.filter(group => user.isCore || group.primaryPersonId === user.id || group.secondaryPersonId === user.id), [snapshot.groups, user]);
   const [groupId, setGroupId] = useState("");
   const [segment, setSegment] = useState<"agenda" | "travel">("agenda");
@@ -206,7 +240,11 @@ function MineView({ user, snapshot, send, saveAgenda, saveTravel }: { user: Even
   }
 
   function addTravel() {
-    const categories = snapshot.categories.filter(category => guestCategoryIds.has(category.id));
+    // Categories already on a vehicle this day are left unticked — the server
+    // allows one plan per category per event and date, so pre-ticking them
+    // walks the coordinator straight into a rejected save.
+    const covered = new Set(dayTravel.flatMap(plan => plan.categories.map(category => category.id)));
+    const categories = snapshot.categories.filter(category => guestCategoryIds.has(category.id) && !covered.has(category.id));
     setEditingTravel({ id: crypto.randomUUID(), name: "", event: selectedDate === "2026-11-18" ? "taj" : "malur", date: selectedDate, mode: "Bus", routeName: "", categories, stops: [{ id: crypto.randomUUID(), order: 1, time: "09:00", place: "" }] });
   }
 
@@ -232,18 +270,18 @@ function MineView({ user, snapshot, send, saveAgenda, saveTravel }: { user: Even
       <div className="mineLineList">{agenda.map(item => <article key={item.id}><button className="mineLineMain" onClick={() => setEditingAgenda(true)}><time>{item.time}</time><span><b>{item.title}</b><small>{item.details || "No additional details"}</small></span><i>›</i></button></article>)}</div>
       {!agenda.length && <div className="quietState"><b>No agenda for this date</b><span>Add the first line before sending.</span></div>}
       <button className="secondaryAction mineAddLine" onClick={() => setEditingAgenda(true)}>＋ Add a line</button>
-      <MessagePreview title="What they will receive" text={agendaMessage} note="The wording is approved centrally. Names, dates and agenda lines are filled from live data." />
+      <MessagePreview title="What they will receive" text={agendaMessage} note="The lines above are inserted into the approved template for each guest's language — German and Japanese guests receive the same content in their own wording." />
       <div className="mineSendActions"><button className="primaryAction" disabled={!agenda.length || !guests.length} onClick={() => send({ title: group.name, purpose: "agenda", guests, group, date: selectedDate })}>Send agenda to all</button><button className="secondaryAction" disabled={!agenda.length} onClick={() => void copy(agendaMessage)}>Copy the text</button></div>
     </> : <>
       <div className="mineTravelList">{dayTravel.map(plan => <button key={plan.id} onClick={() => setEditingTravel(plan)}><span className="travelMode">{plan.mode}</span><span><b>{plan.name}</b><small>{plan.stops[0] ? `${formatTime(plan.stops[0].time)} · ${plan.stops[0].place}` : plan.routeName}</small></span><i>›</i></button>)}</div>
       {!dayTravel.length && <div className="quietState"><b>No travel for this group on this date</b><span>Add the first vehicle or route when it is confirmed.</span></div>}
       <button className="secondaryAction mineAddLine" onClick={addTravel}>＋ Add travel for this group</button>
-      <MessagePreview title="What they will receive" text={travelMessage} note="Vehicle, stop, seat and driver variables are filled from live travel data." />
-      <div className="mineSendActions"><button className="primaryAction" disabled={!dayTravel.length || !guests.length} onClick={() => send({ title: `${group.name} travel`, purpose: "travel", guests, event: selectedDate === "2026-11-18" ? "taj" : "malur", travelPlanId: dayTravel[0]?.id })}>Send travel to all</button><button className="secondaryAction" disabled={!dayTravel.length} onClick={() => void copy(travelMessage)}>Copy the text</button></div>
+      <MessagePreview title="What they will receive" text={travelMessage} note="Each guest receives only their own vehicle's details, in the approved template for their language — the list above shows every vehicle for the day." />
+      <div className="mineSendActions"><button className="primaryAction" disabled={!dayTravel.length || !guests.length} onClick={() => send({ title: `${group.name} travel`, purpose: "travel", guests, travelDate: selectedDate })}>Send travel to all</button><button className="secondaryAction" disabled={!dayTravel.length} onClick={() => void copy(travelMessage)}>Copy the text</button></div>
     </>}
     <p className="mineReachability">{reachable} of {guests.length || group.guestCount} guests in {group.name} have a WhatsApp number in the Master Sheet.</p>
-    {editingAgenda && <AgendaSheet group={group} date={selectedDate} close={() => setEditingAgenda(false)} save={items => { void saveAgenda(group.id, selectedDate, items); setEditingAgenda(false); }} />}
-    {editingTravel && <TravelSheet plan={editingTravel} categories={snapshot.categories} groups={groupCategoryOptions(snapshot)} close={() => setEditingTravel(null)} save={plan => { void saveTravel(plan); setEditingTravel(null); }} />}
+    {editingAgenda && <AgendaSheet group={group} date={selectedDate} close={() => setEditingAgenda(false)} save={async items => { if (await saveAgenda(group.id, selectedDate, items)) setEditingAgenda(false); }} />}
+    {editingTravel && <TravelSheet plan={editingTravel} categories={snapshot.categories} groups={groupCategoryOptions(snapshot)} allPlans={snapshot.travelPlans} close={() => setEditingTravel(null)} save={async plan => { if (await saveTravel(plan)) setEditingTravel(null); }} />}
   </>;
 }
 
@@ -298,7 +336,7 @@ function InvitationsView({ user, preview, snapshot, send, notify }: { user: Even
   </>;
 }
 
-function GuestsView({ snapshot, save, archive }: { snapshot: GuestSnapshot; save: (guest: GuestRecord) => void; archive: (id: string) => Promise<boolean> }) {
+function GuestsView({ snapshot, save, archive }: { snapshot: GuestSnapshot; save: (guest: GuestRecord, rsvps?: { event: GuestEvent; status: string }[]) => Promise<boolean>; archive: (id: string) => Promise<boolean> }) {
   const [event, setEvent] = useState<GuestEvent>("malur");
   const [query, setQuery] = useState("");
   const [category, setCategory] = useState("all");
@@ -311,14 +349,15 @@ function GuestsView({ snapshot, save, archive }: { snapshot: GuestSnapshot; save
     <section className="guestToolbar"><SearchBox value={query} change={setQuery} placeholder="Search by name or company" /><div className="pickerRow"><FilterPicker label="Category" value={category} change={setCategory} options={[{ id: "all", name: "All categories" }, ...snapshot.categories.map(item => ({ id: item.id, name: item.name }))]} /><FilterPicker label="Language" value={language} change={setLanguage} options={[{ id: "all", name: "All languages" }, { id: "english", name: "English" }, { id: "german", name: "German" }, { id: "japanese", name: "Japanese" }]} /></div><button className="secondaryAction addGuestAction" onClick={() => setSelected("new")}>＋ Add guest</button></section>
     <div className="resultSummary"><b>{filtered.length}</b> guests · contact details stay inside the guest record</div>
     <div className="guestList">{filtered.map(guest => <button className="guestRow" key={guest.id} onClick={() => setSelected(guest)}><GuestIdentity guest={guest} /><span className="languagePill">{languageName(guest.preferredLanguage)}</span><i>›</i></button>)}</div>
-    {selected && <GuestEditSheet guest={selected === "new" ? undefined : selected} event={event} snapshot={snapshot} close={() => setSelected(null)} save={guest => { save(guest); setSelected(null); }} archive={async id => { if (await archive(id)) setSelected(null); }} />}
+    {selected && <GuestEditSheet guest={selected === "new" ? undefined : selected} event={event} snapshot={snapshot} close={() => setSelected(null)} save={async (guest, rsvps) => { if (await save(guest, rsvps)) setSelected(null); }} archive={async id => { if (await archive(id)) setSelected(null); }} />}
   </>;
 }
 
-function TravelView({ snapshot, save, send }: { snapshot: GuestSnapshot; save: (plan: GuestTravelPlan) => void | Promise<void>; send: (audience: SendAudience) => void }) {
+function TravelView({ user, snapshot, save, send }: { user: EventUser; snapshot: GuestSnapshot; save: (plan: GuestTravelPlan) => Promise<boolean>; send: (audience: SendAudience) => void }) {
   const [event, setEvent] = useState<GuestEvent>("malur");
   const [query, setQuery] = useState("");
   const [selected, setSelected] = useState<GuestTravelPlan | null>(null);
+  const myGroupIds = useMemo(() => new Set(snapshot.groups.filter(group => group.primaryPersonId === user.id || group.secondaryPersonId === user.id).map(group => group.id)), [snapshot.groups, user.id]);
   const plans = snapshot.travelPlans.filter(plan => plan.event === event && `${plan.name} ${plan.routeName} ${plan.categories.map(item => item.name).join(" ")}`.toLocaleLowerCase("en-IN").includes(query.trim().toLocaleLowerCase("en-IN")));
   function addPlan() { setSelected({ id: crypto.randomUUID(), name: "", event, date: event === "malur" ? "2026-11-15" : "2026-11-18", mode: "Bus", routeName: "", categories: [], stops: [{ id: crypto.randomUUID(), order: 1, time: "09:00", place: "" }] }); }
   return <>
@@ -329,32 +368,39 @@ function TravelView({ snapshot, save, send }: { snapshot: GuestSnapshot; save: (
     <div className="travelGrid">{plans.map(plan => {
       const missing = [!plan.vehicleNumber && "vehicle", !plan.driverName && "driver", !plan.driverPhone && "driver phone"].filter(Boolean) as string[];
       const categoryIds = new Set(plan.categories.map(category => category.id));
-      const guests = snapshot.guests.filter(guest => categoryIds.has(guest.categoryId) && guest.invitations.some(invitation => invitation.event === plan.event && invitation.invited));
-      return <article className="travelCard" key={plan.id}><header><span className="travelMode">{plan.mode}</span><div><b>{plan.name}</b><small>{formatDate(plan.date)}</small></div></header><p>{plan.routeName}</p><div className="categoryPills">{plan.categories.map(category => <span key={category.id}>{category.name}</span>)}</div><ol className="routeLine">{plan.stops.map(stop => <li key={stop.id}><time>{formatTime(stop.time)}</time><span>{stop.place}</span></li>)}</ol>{missing.length ? <div className="inlineWarning">Add {missing.join(", ")}</div> : <div className="inlineReady">Vehicle and driver ready</div>}<footer><button className="secondaryAction" onClick={() => setSelected(plan)}>Edit route</button><button className="primaryAction" disabled={Boolean(missing.length) || !guests.length} onClick={() => send({ title: plan.name, purpose: "travel", guests, event: plan.event, travelPlanId: plan.id })}>Send to all <span>{guests.length}</span></button></footer></article>;
+      const invitedGuests = snapshot.guests.filter(guest => categoryIds.has(guest.categoryId) && guest.invitations.some(invitation => invitation.event === plan.event && invitation.invited));
+      const guests = user.isCore ? invitedGuests : invitedGuests.filter(guest => Boolean(guest.groupId && myGroupIds.has(guest.groupId)));
+      return <article className="travelCard" key={plan.id}><header><span className="travelMode">{plan.mode}</span><div><b>{plan.name}</b><small>{formatDate(plan.date)}</small></div></header><p>{plan.routeName}</p><div className="categoryPills">{plan.categories.map(category => <span key={category.id}>{category.name}</span>)}</div><ol className="routeLine">{plan.stops.map(stop => <li key={stop.id}><time>{formatTime(stop.time)}</time><span>{stop.place}</span></li>)}</ol>{!plan.categories.length ? <div className="inlineWarning">No guest category uses this route any more — its categories were removed from the Master Sheet. Edit the route and choose who travels on it.</div> : missing.length ? <div className="inlineWarning">Add {missing.join(", ")}</div> : <div className="inlineReady">Vehicle and driver ready</div>}<footer><button className="secondaryAction" onClick={() => setSelected(plan)}>Edit route</button><button className="primaryAction" disabled={Boolean(missing.length) || !guests.length} onClick={() => send({ title: plan.name, purpose: "travel", guests, event: plan.event, travelPlanId: plan.id })}>{user.isCore ? "Send to all" : "Send to yours"} <span>{guests.length}</span></button></footer></article>;
     })}</div>{!plans.length && <div className="quietState"><b>No travel plans for this event</b><span>Add the first category route when movement details are known.</span></div>}
-    {selected && <TravelSheet plan={selected} categories={snapshot.categories} groups={groupCategoryOptions(snapshot)} close={() => setSelected(null)} save={plan => { void save(plan); setSelected(null); }} />}
+    {selected && <TravelSheet plan={selected} categories={snapshot.categories} groups={groupCategoryOptions(snapshot)} allPlans={snapshot.travelPlans} close={() => setSelected(null)} save={async plan => { if (await save(plan)) setSelected(null); }} />}
   </>;
 }
 
-function StaysView({ snapshot, save, send }: { snapshot: GuestSnapshot; save: (guestId: string, hotelId: string, room: string) => void; send: (audience: SendAudience) => void }) {
+function StaysView({ user, snapshot, save, removeStay, send }: { user: EventUser; snapshot: GuestSnapshot; save: (guestId: string, hotelId: string, room: string) => Promise<boolean>; removeStay: (guestId: string) => Promise<boolean>; send: (audience: SendAudience) => void }) {
   const [query, setQuery] = useState("");
   const [selected, setSelected] = useState<GuestRecord | null>(null);
-  const hasStay = (guest: GuestRecord) => Boolean(guest.stay?.hotelId && guest.stay.roomNumber);
+  // A stay whose hotel was removed by a Master Sheet pull is NOT ready — the
+  // message would name a hotel that is no longer on this year's list.
+  const hasStay = (guest: GuestRecord) => Boolean(guest.stay?.hotelId && guest.stay.roomNumber && !guest.stay.hotelGone);
+  const myGroupIds = useMemo(() => new Set(snapshot.groups.filter(group => group.primaryPersonId === user.id || group.secondaryPersonId === user.id).map(group => group.id)), [snapshot.groups, user.id]);
   const term = query.trim();
   const LIMIT = 30;
   const scope = term ? snapshot.guests.filter(guest => matchesGuest(guest, query)) : [];
   const shown = scope.slice(0, LIMIT);
-  const ready = snapshot.guests.filter(hasStay);
+  const withStay = snapshot.guests.filter(hasStay);
+  const ready = user.isCore ? withStay : withStay.filter(guest => Boolean(guest.groupId && myGroupIds.has(guest.groupId)));
+  const brokenStays = snapshot.guests.filter(guest => guest.stay?.hotelGone);
   return <>
     <section className="guestHero staysHero"><div><p className="eyebrow">Assign by guest name</p><h1>Hotels and rooms</h1><p>Type the guest&rsquo;s name, choose the hotel and enter the room. That is all.</p></div></section>
-    <section className="guestToolbar staysSearch"><SearchBox value={query} change={setQuery} placeholder="Type a guest name" /><button className="primaryAction sendAllAction" disabled={!ready.length} onClick={() => send({ title: "Hotel and room details", purpose: "stay", guests: ready })}>Send stay details</button></section>
+    <section className="guestToolbar staysSearch"><SearchBox value={query} change={setQuery} placeholder="Type a guest name" /><button className="primaryAction sendAllAction" disabled={!ready.length} onClick={() => send({ title: "Hotel and room details", purpose: "stay", guests: ready })}>{user.isCore ? "Send stay details" : "Send to yours"} <span>{ready.length}</span></button></section>
+    {brokenStays.length > 0 && <div className="inlineWarning">{brokenStays.length === 1 ? `${brokenStays[0].name} is assigned to a hotel that was removed from the Master Sheet — search the name and pick a current hotel.` : `${brokenStays.length} guests are assigned to hotels that were removed from the Master Sheet — search each name and pick a current hotel.`}</div>}
     {!term && <><div className="quietState"><b>Type a name to assign a hotel and room</b><span>Guests with both hotel and room saved are included when stay details are sent.</span></div>
     <p className="hotelNamesLine">Hotels this year: {snapshot.hotels.map(hotel => hotel.name).join(" · ")}</p></>}
     {term && <>
       <div className="resultSummary">{scope.length > LIMIT ? `Showing the first ${LIMIT} — keep typing to narrow` : scope.length ? "Tap the right guest" : "No guest matches that name"}</div>
-      <div className="guestList stayList">{shown.map(guest => <button className="guestRow" key={guest.id} onClick={() => setSelected(guest)}><GuestIdentity guest={guest} /><span className={hasStay(guest) ? "stayAssigned" : "stayMissing"}>{guest.stay?.hotelId ? `${guest.stay.hotelName}${guest.stay.roomNumber ? ` · ${guest.stay.roomNumber}` : " · Room needed"}` : "Assign hotel"}</span><i>›</i></button>)}</div>
+      <div className="guestList stayList">{shown.map(guest => <button className="guestRow" key={guest.id} onClick={() => setSelected(guest)}><GuestIdentity guest={guest} /><span className={hasStay(guest) ? "stayAssigned" : "stayMissing"}>{guest.stay?.hotelGone ? `${guest.stay.hotelName} · hotel removed` : guest.stay?.hotelId ? `${guest.stay.hotelName}${guest.stay.roomNumber ? ` · ${guest.stay.roomNumber}` : " · Room needed"}` : "Assign hotel"}</span><i>›</i></button>)}</div>
     </>}
-    {selected && <StaySheet guest={selected} hotels={snapshot.hotels} close={() => setSelected(null)} save={(hotelId, room) => { save(selected.id, hotelId, room); setSelected(null); }} />}
+    {selected && <StaySheet guest={selected} hotels={snapshot.hotels} close={() => setSelected(null)} save={async (hotelId, room) => { if (await save(selected.id, hotelId, room)) setSelected(null); }} remove={async () => { if (await removeStay(selected.id)) setSelected(null); }} />}
   </>;
 }
 function RsvpPreviewLayer({ name, event, close }: { name: string; event: GuestEvent; close: () => void }) {
@@ -396,13 +442,34 @@ function SendSheet({ audience, snapshot, preview, close, notify }: { audience: S
   const [channel, setChannel] = useState<MessageChannel | null>(null);
   const [busy, setBusy] = useState(false);
   const [review, setReview] = useState<{ batchId: string; ready: number; skipped: number; notSent: { guestId: string; guestName: string; reason?: string; missing?: string[] }[] } | null>(null);
+  const [delivery, setDelivery] = useState<{ configured: boolean; mode: string; whatsapp: boolean; email: boolean } | null>(preview ? { configured: true, mode: "preview", whatsapp: true, email: true } : null);
+  useEffect(() => {
+    if (preview) return;
+    let active = true;
+    // Checked BEFORE the coordinator confirms — a send into an unconfigured
+    // provider must fail here as one message, not as forty failed recipients.
+    fetch("/api/guest/messages/send", { cache: "no-store" }).then(async response => {
+      const payload = await response.json() as { configured?: boolean; mode?: string; whatsapp?: boolean; email?: boolean };
+      if (active && response.ok) setDelivery({ configured: Boolean(payload.configured), mode: payload.mode ?? "unconfigured", whatsapp: Boolean(payload.whatsapp), email: Boolean(payload.email) });
+    }).catch(() => { if (active) setDelivery({ configured: false, mode: "unconfigured", whatsapp: false, email: false }); });
+    return () => { active = false; };
+  }, [preview]);
   const readiness = useMemo(() => audience.guests.map(guest => {
     const reasons: string[] = [];
     if (channel === "whatsapp" && !guest.phone) reasons.push("WhatsApp number missing");
     if (channel === "email" && !guest.email) reasons.push("Email missing");
     if (audience.purpose === "agenda" && audience.group && !audience.group.agenda.some(item => item.date === audience.date)) reasons.push("Agenda missing");
-    if (audience.purpose === "travel" && !snapshot.travelPlans.some(plan => plan.id === audience.travelPlanId && plan.event === audience.event && plan.categories.some(category => category.id === guest.categoryId))) reasons.push("Travel plan missing");
-    if (audience.purpose === "stay" && (!guest.stay?.hotelId || !guest.stay.roomNumber)) reasons.push("Hotel or room missing");
+    if (audience.purpose === "travel") {
+      // Each guest rides the plan covering THEIR category; the plan's own
+      // event decides which invitation must exist.
+      const plan = audience.travelPlanId
+        ? snapshot.travelPlans.find(item => item.id === audience.travelPlanId && item.categories.some(category => category.id === guest.categoryId))
+        : snapshot.travelPlans.find(item => item.date === audience.travelDate && item.categories.some(category => category.id === guest.categoryId));
+      if (!plan) reasons.push("No vehicle covers this guest's category");
+      else if (!guest.invitations.some(invitation => invitation.event === plan.event && invitation.invited)) reasons.push(`Not invited to ${plan.event === "malur" ? "Malur" : "Taj"}`);
+    }
+    if (audience.purpose === "invitation" && audience.event && !guest.invitations.some(invitation => invitation.event === audience.event && invitation.invited)) reasons.push("Not invited to this event");
+    if (audience.purpose === "stay" && (!guest.stay?.hotelId || !guest.stay.roomNumber || guest.stay.hotelGone)) reasons.push(guest.stay?.hotelGone ? "The assigned hotel was removed" : "Hotel or room missing");
     return { guest, reasons };
   }), [audience, channel, snapshot.travelPlans]);
   const ready = channel ? readiness.filter(item => !item.reasons.length) : [];
@@ -418,7 +485,7 @@ function SendSheet({ audience, snapshot, preview, close, notify }: { audience: S
       setBusy(false); close(); return;
     }
     try {
-      const response = await fetch("/api/guest/messages/preflight", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ purpose: audience.purpose, channel, groupId: audience.group?.id, event: audience.event, agendaDate: audience.date, travelPlanId: audience.travelPlanId, guestIds: audience.guests.map(guest => guest.id) }) });
+      const response = await fetch("/api/guest/messages/preflight", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ purpose: audience.purpose, channel, groupId: audience.group?.id, event: audience.event, agendaDate: audience.date, travelPlanId: audience.travelPlanId, travelDate: audience.travelDate, guestIds: audience.guests.map(guest => guest.id) }) });
       const payload = await response.json() as { error?: string; batchId?: string; ready?: number; skipped?: number; notSent?: { guestId: string; guestName: string; reason?: string; missing?: string[] }[] };
       if (!response.ok) throw new Error(payload.error || "Message check could not be completed.");
       if (!payload.batchId) throw new Error("Message review did not create a send batch.");
@@ -447,7 +514,55 @@ function SendSheet({ audience, snapshot, preview, close, notify }: { audience: S
     finally { setBusy(false); }
   }
 
-  return <Sheet title="Send to all" subtitle={audience.title} close={close}><div className="sendSummary"><b>{audience.guests.length}</b><span>guests in this audience</span></div><div className="languageBreakdown">{Object.entries(languageCounts).map(([language, count]) => <span key={language}><b>{count}</b> {languageName(language)}</span>)}</div><fieldset className="channelChoices"><legend>Choose how to send</legend><button className={channel === "whatsapp" ? "active" : ""} onClick={() => { setChannel("whatsapp"); setReview(null); }}><span>W</span><b>WhatsApp</b><small>Approved language template</small></button><button className={channel === "email" ? "active" : ""} onClick={() => { setChannel("email"); setReview(null); }}><span>@</span><b>Email</b><small>English, German or Japanese</small></button></fieldset>{channel && <div className="preflightPanel"><div><span className="readyCount"><b>{review?.ready ?? ready.length}</b> ready</span><span className="skipCount"><b>{review?.skipped ?? skipped.length}</b> not sent</span></div>{!review && skipped.length > 0 && <details><summary>See what needs fixing</summary><ul>{skipped.map(item => <li key={item.guest.id}><b>{item.guest.name}</b><span>{item.reasons.join(" · ")}</span></li>)}</ul></details>}{review && review.notSent.length > 0 && <details><summary>See what needs fixing</summary><ul>{review.notSent.map(item => <li key={item.guestId}><b>{item.guestName}</b><span>{item.missing?.length ? item.missing.join(" · ") : item.reason || "Not ready"}</span></li>)}</ul></details>}</div>}<button className="primaryAction sheetAction" disabled={!channel || !ready.length || busy || Boolean(review && !review.ready)} onClick={() => void (review ? sendNow() : reviewMessages())}>{busy ? (review ? "Sending…" : "Checking…") : !channel ? "Choose WhatsApp or Email" : review ? `Send ${review.ready} now` : `Review ${ready.length} ${channel === "whatsapp" ? "WhatsApp" : "email"} messages`}</button><p className="providerNote">Messages use fixed, centrally approved templates. Coordinators do not type or edit the wording.</p></Sheet>;
+  const channelReady = !channel || !delivery || (channel === "whatsapp" ? delivery.whatsapp : delivery.email);
+  const deliveryBlocked = Boolean(delivery && (!delivery.configured || !channelReady));
+  return <Sheet title="Send to all" subtitle={audience.title} close={close}><div className="sendSummary"><b>{audience.guests.length}</b><span>guests in this audience</span></div><div className="languageBreakdown">{Object.entries(languageCounts).map(([language, count]) => <span key={language}><b>{count}</b> {languageName(language)}</span>)}</div><fieldset className="channelChoices"><legend>Choose how to send</legend><button className={channel === "whatsapp" ? "active" : ""} onClick={() => { setChannel("whatsapp"); setReview(null); }}><span>W</span><b>WhatsApp</b><small>Approved language template</small></button><button className={channel === "email" ? "active" : ""} onClick={() => { setChannel("email"); setReview(null); }}><span>@</span><b>Email</b><small>English, German or Japanese</small></button></fieldset>{delivery && !delivery.configured && <div className="inlineWarning">Message delivery is not switched on in this environment yet — nothing can be sent until it is configured. You can still review who is ready.</div>}{delivery && delivery.configured && channel && !channelReady && <div className="inlineWarning">{channel === "whatsapp" ? "WhatsApp" : "Email"} delivery is not configured — choose the other channel or ask for it to be set up.</div>}{delivery?.mode === "test" && <div className="plainRule"><b>Test mode</b><span>Only numbers and addresses on the approved test list will actually receive anything.</span></div>}{channel && <div className="preflightPanel"><div><span className="readyCount"><b>{review?.ready ?? ready.length}</b> ready</span><span className="skipCount"><b>{review?.skipped ?? skipped.length}</b> not sent</span></div>{!review && skipped.length > 0 && <details><summary>See what needs fixing</summary><ul>{skipped.map(item => <li key={item.guest.id}><b>{item.guest.name}</b><span>{item.reasons.join(" · ")}</span></li>)}</ul></details>}{review && review.notSent.length > 0 && <details><summary>See what needs fixing</summary><ul>{review.notSent.map(item => <li key={item.guestId}><b>{item.guestName}</b><span>{friendlyNotSent(item)}</span></li>)}</ul></details>}</div>}<button className="primaryAction sheetAction" disabled={!channel || !ready.length || busy || Boolean(review && !review.ready) || (Boolean(review) && deliveryBlocked)} onClick={() => void (review ? sendNow() : reviewMessages())}>{busy ? (review ? "Sending…" : "Checking…") : !channel ? "Choose WhatsApp or Email" : review ? (deliveryBlocked ? "Delivery is not configured" : `Send ${review.ready} now`) : `Review ${ready.length} ${channel === "whatsapp" ? "WhatsApp" : "email"} messages`}</button><p className="providerNote">Messages use fixed, centrally approved templates. Coordinators do not type or edit the wording.</p></Sheet>;
+}
+
+function ResumeBatchSheet({ batches, close, notify }: { batches: StrandedBatch[]; close: () => void; notify: (message: string) => void }) {
+  const [selected, setSelected] = useState<StrandedBatch | null>(null);
+  const [failedDetail, setFailedDetail] = useState<{ guestName: string; error: string }[] | null>(null);
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    if (!selected) return;
+    let active = true;
+    fetch(`/api/guest/messages/batches?batchId=${encodeURIComponent(selected.id)}`, { cache: "no-store" }).then(async response => {
+      const payload = await response.json() as { failed?: { guestName: string; error: string }[] };
+      if (active && response.ok) setFailedDetail(payload.failed ?? []);
+    }).catch(() => { if (active) setFailedDetail([]); });
+    return () => { active = false; };
+  }, [selected]);
+  async function resume(batch: StrandedBatch) {
+    if (!window.confirm(`Send the ${batch.remaining} remaining ${batch.channel === "whatsapp" ? "WhatsApp" : "email"} messages from this batch now? Guests already sent will not be messaged again.`)) return;
+    setBusy(true);
+    try {
+      let summary: { remaining: number; accepted: number; failed: number } | null = null;
+      for (let requestCount = 0; requestCount < 500; requestCount += 1) {
+        const response = await fetch("/api/guest/messages/send", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ batchId: batch.id }) });
+        const payload = await response.json() as { error?: string; remaining?: number; accepted?: number; failed?: number };
+        if (!response.ok) throw new Error(payload.error || "Messages could not be sent.");
+        summary = { remaining: payload.remaining ?? 0, accepted: payload.accepted ?? 0, failed: payload.failed ?? 0 };
+        if (!summary.remaining) break;
+      }
+      if (!summary || summary.remaining) throw new Error("The send still did not finish. Check the connection and try again — nothing is sent twice.");
+      notify(`${summary.accepted} accepted in total; ${summary.failed} failed.`);
+      close();
+    } catch (error) { notify(error instanceof Error ? error.message : "Messages could not be sent."); }
+    finally { setBusy(false); }
+  }
+  return <Sheet title="Unfinished sends" subtitle="Pick up where it stopped" close={close}>
+    <div className="plainRule"><b>Nothing is sent twice</b><span>Resuming a batch only sends to guests who were reviewed but never reached.</span></div>
+    {batches.map(batch => <article className="preflightPanel" key={batch.id}>
+      <div><span className="readyCount"><b>{batch.accepted}</b> sent</span><span className="skipCount"><b>{batch.remaining}</b> waiting</span>{batch.failed > 0 && <span className="skipCount"><b>{batch.failed}</b> failed</span>}</div>
+      <p className="mineAllNote">{purposeLabel(batch.purpose)} · {batch.channel === "whatsapp" ? "WhatsApp" : "Email"} · reviewed {new Date(batch.createdAt).toLocaleString("en-IN", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}</p>
+      {selected?.id === batch.id && failedDetail && failedDetail.length > 0 && <details open><summary>Why {failedDetail.length} failed</summary><ul>{failedDetail.map((item, index) => <li key={index}><b>{item.guestName}</b><span>{item.error}</span></li>)}</ul></details>}
+      <div className="mineSendActions">
+        {batch.remaining > 0 && <button className="primaryAction" disabled={busy} onClick={() => void resume(batch)}>{busy ? "Sending…" : `Send the remaining ${batch.remaining}`}</button>}
+        {batch.failed > 0 && selected?.id !== batch.id && <button className="secondaryAction" onClick={() => { setFailedDetail(null); setSelected(batch); }}>See why they failed</button>}
+      </div>
+    </article>)}
+    {!batches.length && <div className="quietState"><b>Nothing is waiting</b><span>Every reviewed batch has finished.</span></div>}
+  </Sheet>;
 }
 
 type SheetSyncStatus = { configured: boolean; pending: number; failed: number; delivered: number; error?: string };
@@ -492,26 +607,47 @@ function GoogleSheetsSyncSheet({ close, notify }: { close: () => void; notify: (
   </Sheet>;
 }
 
-function GuestEditSheet({ guest, event, snapshot, close, save, archive }: { guest?: GuestRecord; event: GuestEvent; snapshot: GuestSnapshot; close: () => void; save: (guest: GuestRecord) => void; archive: (id: string) => void | Promise<void> }) {
+function GuestEditSheet({ guest, event, snapshot, close, save, archive }: { guest?: GuestRecord; event: GuestEvent; snapshot: GuestSnapshot; close: () => void; save: (guest: GuestRecord, rsvps?: { event: GuestEvent; status: string }[]) => void; archive: (id: string) => void | Promise<void> }) {
+  // The two evenings are independent invitations — a guest can attend Malur,
+  // Taj or both, and a coordinator must be able to change that here rather
+  // than through a Master Sheet edit and a core-only sync.
+  const [invitedEvents, setInvitedEvents] = useState<Set<GuestEvent>>(() => new Set(guest ? guest.invitations.filter(item => item.invited).map(item => item.event) : [event]));
+  const [rsvpChoices, setRsvpChoices] = useState<Partial<Record<GuestEvent, string>>>({});
+  function toggleEvent(value: GuestEvent) { setInvitedEvents(current => { const next = new Set(current); if (next.has(value)) next.delete(value); else next.add(value); return next; }); }
   function submit(formEvent: FormEvent<HTMLFormElement>) {
     formEvent.preventDefault();
+    if (!invitedEvents.size) return;
     const form = new FormData(formEvent.currentTarget);
     const categoryId = String(form.get("categoryId"));
     const groupId = String(form.get("groupId"));
     const current = guest ?? { id: crypto.randomUUID(), invitations: [{ event: "malur" as const, invited: false, rsvpStatus: "not-invited" as const }, { event: "taj" as const, invited: false, rsvpStatus: "not-invited" as const }] };
-    const invitations = current.invitations.map(item => item.event === event ? { ...item, invited: true, rsvpStatus: item.rsvpStatus === "not-invited" ? "pending" as const : item.rsvpStatus } : item);
-    save({ ...current, name: String(form.get("name") || "").trim(), company: String(form.get("company") || "").trim(), categoryId, categoryName: snapshot.categories.find(item => item.id === categoryId)?.name ?? "", groupId: groupId || undefined, groupName: snapshot.groups.find(item => item.id === groupId)?.name, country: String(form.get("country") || "India").trim(), preferredLanguage: String(form.get("preferredLanguage")) as GuestRecord["preferredLanguage"], phone: String(form.get("phone") || "").trim() || undefined, email: String(form.get("email") || "").trim() || undefined, invitations } as GuestRecord);
+    const invitations = current.invitations.map(item => invitedEvents.has(item.event)
+      ? { ...item, invited: true, rsvpStatus: item.rsvpStatus === "not-invited" ? "pending" as const : item.rsvpStatus }
+      : { ...item, invited: false, rsvpStatus: "not-invited" as const });
+    const rsvps = (Object.entries(rsvpChoices) as [GuestEvent, string][]).filter(([rsvpEvent, status]) => invitedEvents.has(rsvpEvent) && status).map(([rsvpEvent, status]) => ({ event: rsvpEvent, status }));
+    save({ ...current, name: String(form.get("name") || "").trim(), company: String(form.get("company") || "").trim(), categoryId, categoryName: snapshot.categories.find(item => item.id === categoryId)?.name ?? "", groupId: groupId || undefined, groupName: snapshot.groups.find(item => item.id === groupId)?.name, country: String(form.get("country") || "India").trim(), preferredLanguage: String(form.get("preferredLanguage")) as GuestRecord["preferredLanguage"], phone: String(form.get("phone") || "").trim() || undefined, email: String(form.get("email") || "").trim() || undefined, invitations } as GuestRecord, rsvps.length ? rsvps : undefined);
   }
-  return <Sheet title={guest ? "Guest details" : "Add guest"} subtitle={guest ? guest.name : `Add to ${event === "malur" ? "Malur" : "Taj"}`} close={close}><form className="recordForm" onSubmit={submit}><label><span>Guest name</span><input name="name" defaultValue={guest?.name} autoComplete="name" required /></label><label><span>Company</span><input name="company" defaultValue={guest?.company} /></label><div className="formPair"><label><span>Category</span><select name="categoryId" defaultValue={guest?.categoryId ?? snapshot.categories[0]?.id} required>{snapshot.categories.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label><label><span>Preferred language</span><select name="preferredLanguage" defaultValue={guest?.preferredLanguage ?? "english"} required><option value="english">English</option><option value="german">German</option><option value="japanese">Japanese</option></select></label></div><label><span>Guest group</span><select name="groupId" defaultValue={guest?.groupId ?? ""}><option value="">No group</option>{snapshot.groups.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label><label><span>Country or origin</span><input name="country" defaultValue={guest?.country ?? "India"} /></label><div className="formPair"><label><span>WhatsApp number</span><input name="phone" type="tel" inputMode="tel" autoComplete="tel" defaultValue={guest?.phone} /></label><label><span>Email</span><input name="email" type="email" inputMode="email" autoComplete="email" defaultValue={guest?.email} /></label></div><button className="primaryAction">Save guest</button>{guest && <button type="button" className="dangerAction" onClick={() => { if (window.confirm(`Remove ${guest.name} from active guest coordination?`)) void archive(guest.id); }}>Remove guest</button>}</form></Sheet>;
+  const rsvpOf = (value: GuestEvent) => guest?.invitations.find(item => item.event === value)?.rsvpStatus ?? "not-invited";
+  return <Sheet title={guest ? "Guest details" : "Add guest"} subtitle={guest ? guest.name : `Add to ${event === "malur" ? "Malur" : "Taj"}`} close={close}>{!snapshot.categories.length && <div className="inlineWarning">There are no guest categories yet — they come from the Master Sheet. Ask a core committee member to sync it first.</div>}<form className="recordForm" onSubmit={submit}><label><span>Guest name</span><input name="name" defaultValue={guest?.name} autoComplete="name" required /></label><label><span>Company</span><input name="company" defaultValue={guest?.company} /></label><div className="formPair"><label><span>Category</span><select name="categoryId" defaultValue={guest?.categoryId ?? ""} required><option value="" disabled>Choose a category</option>{snapshot.categories.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label><label><span>Preferred language</span><select name="preferredLanguage" defaultValue={guest?.preferredLanguage ?? "english"} required><option value="english">English</option><option value="german">German</option><option value="japanese">Japanese</option></select></label></div><fieldset className="categoryChecks"><legend>Invited to</legend><label><input type="checkbox" checked={invitedEvents.has("malur")} onChange={() => toggleEvent("malur")} /><span>YIL Malur · 15 November</span></label><label><input type="checkbox" checked={invitedEvents.has("taj")} onChange={() => toggleEvent("taj")} /><span>Taj West End · 18 November</span></label></fieldset>{guest && (["malur", "taj"] as const).filter(value => invitedEvents.has(value)).map(value => <label key={value}><span>{value === "malur" ? "Malur reply" : "Taj reply"} — record it here if they answered by phone or in person</span><select value={rsvpChoices[value] ?? (rsvpOf(value) === "not-invited" ? "pending" : rsvpOf(value))} onChange={changeEvent => setRsvpChoices(current => ({ ...current, [value]: changeEvent.target.value }))}><option value="pending">Awaiting reply</option><option value="accepted">Attending</option><option value="declined">Unable to attend</option></select></label>)}<label><span>Guest group</span><select name="groupId" defaultValue={guest?.groupId ?? ""}><option value="">No group</option>{snapshot.groups.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label><label><span>Country or origin</span><input name="country" defaultValue={guest?.country ?? "India"} /></label><div className="formPair"><label><span>WhatsApp number</span><input name="phone" type="tel" inputMode="tel" autoComplete="tel" defaultValue={guest?.phone} placeholder="10 digits, or +country code" /></label><label><span>Email</span><input name="email" type="email" inputMode="email" autoComplete="email" defaultValue={guest?.email} /></label></div><button className="primaryAction" disabled={!invitedEvents.size || !snapshot.categories.length}>{invitedEvents.size ? "Save guest" : "Choose at least one event"}</button>{guest && <button type="button" className="dangerAction" onClick={() => { if (window.confirm(`Remove ${guest.name} from active guest coordination? Their hotel assignment, replies and pending messages leave the active workflows; history stays in the audit log.`)) void archive(guest.id); }}>Remove guest</button>}</form></Sheet>;
 }
 
-function StaySheet({ guest, hotels, close, save }: { guest: GuestRecord; hotels: GuestSnapshot["hotels"]; close: () => void; save: (hotelId: string, room: string) => void }) {
-  function submit(event: FormEvent<HTMLFormElement>) { event.preventDefault(); const form = new FormData(event.currentTarget); save(String(form.get("hotelId")), String(form.get("roomNumber") || "").trim()); }
-  return <Sheet title="Assign hotel and room" subtitle={guest.name} close={close}><div className="selectedGuest"><GuestIdentity guest={guest} /><span>{guest.groupName || "No guest group"}</span></div><form className="recordForm" onSubmit={submit}><label><span>Hotel</span><select name="hotelId" defaultValue={guest.stay?.hotelId ?? ""} required><option value="" disabled>Choose hotel</option>{hotels.map(hotel => <option key={hotel.id} value={hotel.id}>{hotel.name}</option>)}</select></label><label><span>Room number</span><input name="roomNumber" defaultValue={guest.stay?.roomNumber} inputMode="text" placeholder="Enter room number" required /></label><button className="primaryAction">Save hotel and room</button></form></Sheet>;
+function StaySheet({ guest, hotels, close, save, remove }: { guest: GuestRecord; hotels: GuestSnapshot["hotels"]; close: () => void; save: (hotelId: string, room: string) => Promise<void>; remove: () => Promise<void> }) {
+  const [busy, setBusy] = useState(false);
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    const room = String(form.get("roomNumber") || "").trim();
+    if (!room) return;
+    setBusy(true);
+    try { await save(String(form.get("hotelId")), room); } finally { setBusy(false); }
+  }
+  const hotelIsGone = Boolean(guest.stay?.hotelGone);
+  return <Sheet title="Assign hotel and room" subtitle={guest.name} close={close}><div className="selectedGuest"><GuestIdentity guest={guest} /><span>{guest.groupName || "No guest group"}</span></div>{hotelIsGone && <div className="inlineWarning">{guest.stay?.hotelName} was removed from the Master Sheet — choose a current hotel below, or remove the stay.</div>}<form className="recordForm" onSubmit={submit}><label><span>Hotel</span><select name="hotelId" defaultValue={hotelIsGone ? "" : guest.stay?.hotelId ?? ""} required><option value="" disabled>Choose hotel</option>{hotels.map(hotel => <option key={hotel.id} value={hotel.id}>{hotel.name}</option>)}</select></label><label><span>Room number</span><input name="roomNumber" defaultValue={guest.stay?.roomNumber} inputMode="text" placeholder="Enter room number" required /></label><button className="primaryAction" disabled={busy}>{busy ? "Saving…" : "Save hotel and room"}</button>{guest.stay && <button type="button" className="dangerAction" disabled={busy} onClick={() => { if (window.confirm(`Remove the hotel and room for ${guest.name}? They will no longer be included when stay details are sent.`)) { setBusy(true); void remove().finally(() => setBusy(false)); } }}>Remove this stay</button>}</form></Sheet>;
 }
 
-function TravelSheet({ plan, categories, groups, close, save }: { plan: GuestTravelPlan; categories: GuestSnapshot["categories"]; groups: { id: string; name: string; categoryIds: string[] }[]; close: () => void; save: (plan: GuestTravelPlan) => void }) {
+function TravelSheet({ plan, categories, groups, allPlans, close, save }: { plan: GuestTravelPlan; categories: GuestSnapshot["categories"]; groups: { id: string; name: string; categoryIds: string[] }[]; allPlans: GuestTravelPlan[]; close: () => void; save: (plan: GuestTravelPlan) => void | Promise<void> }) {
   const [name, setName] = useState(plan.name), [mode, setMode] = useState(plan.mode), [date, setDate] = useState(plan.date), [routeName, setRouteName] = useState(plan.routeName);
+  const [event, setEvent] = useState<GuestEvent>(plan.event);
   const [vehicleNumber, setVehicleNumber] = useState(plan.vehicleNumber ?? ""), [driverName, setDriverName] = useState(plan.driverName ?? ""), [driverPhone, setDriverPhone] = useState(plan.driverPhone ?? "");
   const [conductorName, setConductorName] = useState(plan.conductorName ?? ""), [conductorPhone, setConductorPhone] = useState(plan.conductorPhone ?? "");
   const [groupChoice, setGroupChoice] = useState("");
@@ -530,17 +666,29 @@ function TravelSheet({ plan, categories, groups, close, save }: { plan: GuestTra
     setStops(value => value.map((stop, index) => (position === "first" ? index === 0 : index === value.length - 1) ? { ...stop, place } : stop));
   }
   function toggleCategory(id: string) { setCategoryIds(value => { const next = new Set(value); if (next.has(id)) next.delete(id); else next.add(id); return next; }); }
-  function submit(event: FormEvent) {
-    event.preventDefault();
-    save({ ...plan, name: name.trim(), date, mode: mode.trim(), routeName: routeName.trim(), vehicleNumber: vehicleNumber.trim() || undefined, driverName: driverName.trim() || undefined, driverPhone: driverPhone.trim() || undefined, conductorName: mode === "Car" ? undefined : conductorName.trim() || undefined, conductorPhone: mode === "Car" ? undefined : conductorPhone.trim() || undefined, categories: categories.filter(category => categoryIds.has(category.id)), stops: stops.map((stop, index) => ({ ...stop, order: index + 1 })) });
+  // One plan per category per event and date is a server rule; naming the
+  // conflicting plan here saves the coordinator from filling the whole form
+  // and only then being refused.
+  const takenBy = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const other of allPlans) if (other.id !== plan.id && other.event === event && other.date === date) for (const category of other.categories) map.set(category.id, other.name);
+    return map;
+  }, [allPlans, plan.id, event, date]);
+  function submit(formEvent: FormEvent) {
+    formEvent.preventDefault();
+    save({ ...plan, name: name.trim(), event, date, mode: mode.trim(), routeName: routeName.trim(), vehicleNumber: vehicleNumber.trim() || undefined, driverName: driverName.trim() || undefined, driverPhone: driverPhone.trim() || undefined, conductorName: mode === "Car" ? undefined : conductorName.trim() || undefined, conductorPhone: mode === "Car" ? undefined : conductorPhone.trim() || undefined, categories: categories.filter(category => categoryIds.has(category.id)), stops: stops.map((stop, index) => ({ ...stop, order: index + 1 })) });
   }
-  return <Sheet title={plan.name ? "Edit travel plan" : "Add travel plan"} subtitle={plan.name || (plan.event === "malur" ? "YIL Malur" : "Taj West End")} close={close}><form className="recordForm travelForm" onSubmit={submit}><label><span>Plan name</span><input value={name} onChange={event => setName(event.target.value)} placeholder="Example: Japan coach to Malur" required /></label><div className="formPair"><label><span>Travel date</span><input type="date" value={date} onChange={event => setDate(event.target.value)} required /></label><div className="modeChoice"><span>Bus or car?</span><div className="choiceRow" role="group" aria-label="Travel mode">{["Bus", "Car", ...(mode && !["Bus", "Car"].includes(mode) ? [mode] : [])].map(option => <button type="button" key={option} className={mode === option ? "active" : ""} onClick={() => setMode(option)}>{option}</button>)}</div></div></div>{mode !== "Car" && <><div className="formPair"><label><span>How many stops?</span><input type="number" min={2} max={12} value={stops.length} onChange={event => applyStopCount(Number(event.target.value))} /></label><label><span>Start point</span><input value={stops[0]?.place ?? ""} onChange={event => setPlaceAt("first", event.target.value)} placeholder="Where the bus starts" required /></label></div><label><span>End point</span><input value={stops[stops.length - 1]?.place ?? ""} onChange={event => setPlaceAt("last", event.target.value)} placeholder="Where the bus ends" required /></label></>}<label><span>Route name</span><input value={routeName} onChange={event => setRouteName(event.target.value)} required /></label><div className="formPair"><label><span>Vehicle number</span><input value={vehicleNumber} onChange={event => setVehicleNumber(event.target.value)} placeholder="Add when confirmed" /></label><label><span>Driver name</span><input value={driverName} onChange={event => setDriverName(event.target.value)} placeholder="Add when confirmed" /></label></div><label><span>Driver phone</span><input type="tel" value={driverPhone} onChange={event => setDriverPhone(event.target.value)} inputMode="tel" autoComplete="tel" placeholder="Add when confirmed" /></label>{mode !== "Car" && <div className="formPair"><label><span>Conductor name</span><input value={conductorName} onChange={event => setConductorName(event.target.value)} placeholder="Add when confirmed" /></label><label><span>Conductor phone</span><input type="tel" value={conductorPhone} onChange={event => setConductorPhone(event.target.value)} inputMode="tel" placeholder="Add when confirmed" /></label></div>}<label><span>Guest group for this plan</span><select value={groupChoice} onChange={event => { const value = event.target.value; setGroupChoice(value); const found = groups.find(group => group.id === value); if (found) setCategoryIds(new Set(found.categoryIds)); }}><option value="">Choose a group to fill the categories</option>{groups.map(group => <option key={group.id} value={group.id}>{group.name}</option>)}</select></label><fieldset className="categoryChecks"><legend>Guest categories using this travel plan</legend>{categories.map(category => <label key={category.id}><input type="checkbox" checked={categoryIds.has(category.id)} onChange={() => toggleCategory(category.id)} /><span>{category.name}</span></label>)}</fieldset><div className="stopEditor"><div className="sectionTitle prototypeSectionTitle compact"><div><p className="eyebrow">In travel order</p><h2>Stops</h2></div></div>{stops.map((stop, index) => <div className="stopEditRow" key={stop.id}><span className={`stopNumber ${index === 0 ? "start" : index === stops.length - 1 ? "end" : ""}`}>{index === 0 ? "S" : index === stops.length - 1 ? "E" : index + 1}</span><label><span>Time</span><input type="time" value={stop.time} onChange={event => setStops(value => value.map(row => row.id === stop.id ? { ...row, time: event.target.value } : row))} required /></label><label><span>Place</span><input value={stop.place} onChange={event => setStops(value => value.map(row => row.id === stop.id ? { ...row, place: event.target.value } : row))} required /></label>{(mode === "Car" || (index > 0 && index < stops.length - 1)) ? <button type="button" aria-label={`Remove stop ${index + 1}`} onClick={() => { setStops(value => value.filter(row => row.id !== stop.id).map((row, rowIndex) => ({ ...row, order: rowIndex + 1 }))); }}>×</button> : <span className="stopLock" aria-hidden="true" />}</div>)}{mode === "Car" && <button type="button" className="secondaryAction addLineAction" onClick={() => setStops(value => [...value, { id: crypto.randomUUID(), order: value.length + 1, time: "09:00", place: "" }])}>＋ Add stop</button>}</div><button className="primaryAction" disabled={!name.trim() || !categoryIds.size || !stops.length || stops.some(stop => !stop.time || !stop.place.trim())}>Save travel plan</button></form></Sheet>;
+  return <Sheet title={plan.name ? "Edit travel plan" : "Add travel plan"} subtitle={plan.name || (plan.event === "malur" ? "YIL Malur" : "Taj West End")} close={close}><form className="recordForm travelForm" onSubmit={submit}><label><span>Plan name</span><input value={name} onChange={event => setName(event.target.value)} placeholder="Example: Japan coach to Malur" required /></label><div className="modeChoice"><span>Which evening is this travel for?</span><div className="choiceRow" role="group" aria-label="Event"><button type="button" className={event === "malur" ? "active" : ""} onClick={() => setEvent("malur")}>YIL Malur · 15 Nov</button><button type="button" className={event === "taj" ? "active" : ""} onClick={() => setEvent("taj")}>Taj West End · 18 Nov</button></div></div><div className="formPair"><label><span>Travel date</span><input type="date" value={date} onChange={event => setDate(event.target.value)} required /></label><div className="modeChoice"><span>Bus or car?</span><div className="choiceRow" role="group" aria-label="Travel mode">{["Bus", "Car", ...(mode && !["Bus", "Car"].includes(mode) ? [mode] : [])].map(option => <button type="button" key={option} className={mode === option ? "active" : ""} onClick={() => setMode(option)}>{option}</button>)}</div></div></div>{mode !== "Car" && <><div className="formPair"><label><span>How many stops?</span><input type="number" min={2} max={12} value={stops.length} onChange={event => applyStopCount(Number(event.target.value))} /></label><label><span>Start point</span><input value={stops[0]?.place ?? ""} onChange={event => setPlaceAt("first", event.target.value)} placeholder="Where the bus starts" required /></label></div><label><span>End point</span><input value={stops[stops.length - 1]?.place ?? ""} onChange={event => setPlaceAt("last", event.target.value)} placeholder="Where the bus ends" required /></label></>}<label><span>Route name</span><input value={routeName} onChange={event => setRouteName(event.target.value)} required /></label><div className="formPair"><label><span>Vehicle number</span><input value={vehicleNumber} onChange={event => setVehicleNumber(event.target.value)} placeholder="Add when confirmed" /></label><label><span>Driver name</span><input value={driverName} onChange={event => setDriverName(event.target.value)} placeholder="Add when confirmed" /></label></div><label><span>Driver phone</span><input type="tel" value={driverPhone} onChange={event => setDriverPhone(event.target.value)} inputMode="tel" autoComplete="tel" placeholder="Add when confirmed" /></label>{mode !== "Car" && <div className="formPair"><label><span>Conductor name</span><input value={conductorName} onChange={event => setConductorName(event.target.value)} placeholder="Add when confirmed" /></label><label><span>Conductor phone</span><input type="tel" value={conductorPhone} onChange={event => setConductorPhone(event.target.value)} inputMode="tel" placeholder="Add when confirmed" /></label></div>}<label><span>Guest group for this plan</span><select value={groupChoice} onChange={event => { const value = event.target.value; setGroupChoice(value); const found = groups.find(group => group.id === value); if (found) setCategoryIds(new Set(found.categoryIds)); }}><option value="">Choose a group to fill the categories</option>{groups.map(group => <option key={group.id} value={group.id}>{group.name}</option>)}</select></label><fieldset className="categoryChecks"><legend>Guest categories using this travel plan</legend>{categories.map(category => { const taken = takenBy.get(category.id); return <label key={category.id}><input type="checkbox" checked={categoryIds.has(category.id)} disabled={Boolean(taken) && !categoryIds.has(category.id)} onChange={() => toggleCategory(category.id)} /><span>{category.name}{taken ? ` — already on ${taken}` : ""}</span></label>; })}</fieldset><div className="stopEditor"><div className="sectionTitle prototypeSectionTitle compact"><div><p className="eyebrow">In travel order</p><h2>Stops</h2></div></div>{stops.map((stop, index) => <div className="stopEditRow" key={stop.id}><span className={`stopNumber ${index === 0 ? "start" : index === stops.length - 1 ? "end" : ""}`}>{index === 0 ? "S" : index === stops.length - 1 ? "E" : index + 1}</span><label><span>Time</span><input type="time" value={stop.time} onChange={event => setStops(value => value.map(row => row.id === stop.id ? { ...row, time: event.target.value } : row))} required /></label><label><span>Place</span><input value={stop.place} onChange={event => setStops(value => value.map(row => row.id === stop.id ? { ...row, place: event.target.value } : row))} required /></label>{(mode === "Car" || (index > 0 && index < stops.length - 1)) ? <button type="button" aria-label={`Remove stop ${index + 1}`} onClick={() => { setStops(value => value.filter(row => row.id !== stop.id).map((row, rowIndex) => ({ ...row, order: rowIndex + 1 }))); }}>×</button> : <span className="stopLock" aria-hidden="true" />}</div>)}{mode === "Car" && (stops.length >= 20 ? <p className="mineAllNote">A plan can have up to 20 stops.</p> : <button type="button" className="secondaryAction addLineAction" onClick={() => setStops(value => [...value, { id: crypto.randomUUID(), order: value.length + 1, time: "09:00", place: "" }])}>＋ Add stop</button>)}</div><button className="primaryAction" disabled={!name.trim() || !categoryIds.size || !stops.length || stops.some(stop => !stop.time || !stop.place.trim())}>Save travel plan</button></form></Sheet>;
 }
 
-function AgendaSheet({ group, date, close, save }: { group: GuestGroup; date: string; close: () => void; save: (items: GuestAgendaItem[]) => void }) {
+function AgendaSheet({ group, date, close, save }: { group: GuestGroup; date: string; close: () => void; save: (items: GuestAgendaItem[]) => void | Promise<void> }) {
   const [items, setItems] = useState<GuestAgendaItem[]>(() => group.agenda.filter(item => item.date === date).sort((a, b) => a.time.localeCompare(b.time)));
-  function addLine() { setItems(value => [...value, { id: crypto.randomUUID(), date, time: "09:00", title: "" }]); }
-  return <Sheet title="Edit agenda" subtitle={`${group.name} · ${formatDate(date)}`} close={close}><div className="agendaEditor">{items.map((item, index) => <div className="agendaEditRow" key={item.id}><label><span>Time</span><input type="time" value={item.time} onChange={event => setItems(value => value.map(row => row.id === item.id ? { ...row, time: event.target.value } : row))} required /></label><label><span>Agenda item</span><input value={item.title} onChange={event => setItems(value => value.map(row => row.id === item.id ? { ...row, title: event.target.value } : row))} placeholder="What happens?" maxLength={200} required /></label><button aria-label={`Remove agenda line ${index + 1}`} onClick={() => setItems(value => value.filter(row => row.id !== item.id))}>×</button></div>)}</div><button className="secondaryAction addLineAction" onClick={addLine}>＋ Add agenda line</button><button className="primaryAction sheetAction" disabled={items.some(item => !item.time || !item.title.trim())} onClick={() => save(items)}>Save agenda</button></Sheet>;
+  function addLine() { setItems(value => [...value, { id: crypto.randomUUID(), date, time: "09:00", title: "", details: "" }]); }
+  function submitAgenda() {
+    if (!items.length && !window.confirm(`Save with no lines? This clears the whole agenda for ${group.name} on ${formatDate(date)}.`)) return;
+    void save(items);
+  }
+  return <Sheet title="Edit agenda" subtitle={`${group.name} · ${formatDate(date)}`} close={close}><div className="agendaEditor">{items.map((item, index) => <div className="agendaEditRow" key={item.id}><label><span>Time</span><input type="time" value={item.time} onChange={event => setItems(value => value.map(row => row.id === item.id ? { ...row, time: event.target.value } : row))} required /></label><label><span>Agenda item</span><input value={item.title} onChange={event => setItems(value => value.map(row => row.id === item.id ? { ...row, title: event.target.value } : row))} placeholder="What happens?" maxLength={200} required /></label><label className="agendaDetailsField"><span>Details (optional)</span><input value={item.details ?? ""} onChange={event => setItems(value => value.map(row => row.id === item.id ? { ...row, details: event.target.value } : row))} placeholder="Dress code, meeting point…" maxLength={500} /></label><button aria-label={`Remove agenda line ${index + 1}`} onClick={() => setItems(value => value.filter(row => row.id !== item.id))}>×</button></div>)}</div><button className="secondaryAction addLineAction" onClick={addLine}>＋ Add agenda line</button><button className="primaryAction sheetAction" disabled={items.some(item => !item.time || !item.title.trim())} onClick={submitAgenda}>Save agenda</button></Sheet>;
 }
 
 type TemplateUi = Omit<MessageTemplate, "approved"> & { approved: boolean };
@@ -577,7 +725,7 @@ function formatDate(date: string) { return new Date(`${date}T12:00:00`).toLocale
 function shortDate(date: string) { return new Date(`${date}T12:00:00`).toLocaleDateString("en-IN", { day: "numeric", month: "short" }); }
 function formatTime(time: string) { const [hour, minute] = time.split(":").map(Number); return new Date(2000, 0, 1, hour, minute).toLocaleTimeString("en-IN", { hour: "numeric", minute: "2-digit" }); }
 function buildAgendaPreview(group: GuestGroup, date: string, items: GuestAgendaItem[]) {
-  const lines = items.map(item => `${item.time}  ${item.title}${item.details ? ` — ${item.details}` : ""}`).join("\n");
+  const lines = items.map(item => `${item.time} — ${item.title}${item.details ? ` — ${item.details}` : ""}`).join("\n");
   return `Yuken India Limited — Golden Jubilee\n\n${group.name}\nYour programme · ${formatDate(date)}\n\n${lines || "Programme details will be shared shortly."}\n\nPlease contact your YIL coordinator if you need any help.`;
 }
 function buildTravelPreview(group: GuestGroup, date: string, plans: GuestTravelPlan[]) {
@@ -590,3 +738,21 @@ function buildTravelPreview(group: GuestGroup, date: string, plans: GuestTravelP
 }
 function languageName(language: string) { return ({ english: "English", german: "German", japanese: "Japanese" } as Record<string, string>)[language] ?? language; }
 function rsvpLabel(status: string) { return ({ "not-invited": "Not sent yet", pending: "Awaiting reply", accepted: "Attending", declined: "Unable to attend" } as Record<string, string>)[status] ?? status; }
+function purposeLabel(purpose: string) { return ({ invitation: "Invitation", agenda: "Daily agenda", travel: "Travel details", stay: "Hotel and room" } as Record<string, string>)[purpose] ?? purpose; }
+/** The review list must read like instructions, never machine codes or
+ *  template variable names. */
+function friendlyNotSent(item: { reason?: string; missing?: string[] }) {
+  if (item.reason === "missing-contact") return "No usable WhatsApp number or email on the guest record — open the guest and add it.";
+  if (item.reason === "template-not-approved") return "The message template for this guest's language is not approved yet — a core member approves it under Invites → Review templates.";
+  if (item.reason === "not-invited") return "Not invited to this event — open the guest record to change the invitations.";
+  if (item.reason === "missing-information" && item.missing?.length) {
+    const groups = new Set(item.missing.map(key =>
+      key === "agenda_lines" || key === "agenda_date" ? "the day's agenda"
+      : key.startsWith("travel") || key === "route_name" || key === "vehicle_number" || key === "driver_name" || key === "driver_phone" ? "the travel plan (vehicle, driver, stops)"
+      : key === "hotel_name" || key === "room_number" ? "the hotel and room"
+      : key === "event_name" || key === "event_date" ? "the event details"
+      : "some details"));
+    return `Still missing: ${[...groups].join(" · ")}.`;
+  }
+  return "Not ready to send.";
+}

@@ -37,3 +37,7 @@
 .guestBody>.eventSwitch,.guestBody .guestToolbar{margin-bottom:16px}.guestBody .guestHero{margin-bottom:16px}.guestBody .resultSummary{margin-top:16px}
 @media(max-width:760px){.guestBody{padding-top:16px}.mineGroupPicker button{min-height:40px}.mineDayHeader h1{font-size:21px}.messagePreview textarea{min-height:165px}.guestToolbar{border-radius:12px}}
 @media(max-width:380px){.mineLineMain{grid-template-columns:58px minmax(0,1fr) 13px;padding-inline:7px}.mineSendActions{grid-template-columns:1fr}.messagePreview header b{font-size:17px}}
+
+/* Agenda lines carry optional details; the field spans its own row under time and title. */
+.agendaEditRow>button{grid-column:3;grid-row:1}
+.agendaEditRow .agendaDetailsField{grid-column:1 / -1}

@@ -279,3 +279,9 @@
 .templateAccessBar span small{font-size:12px}
 .categoryPills span{font-size:12px}
 .modeChoice>span{font-size:12px}
+
+/* Budget rows open an edit sheet: the tap surface carries the row grid. */
+.budgetList article{display:block;padding:0}
+.budgetRowTap{width:100%;min-height:60px;display:grid;grid-template-columns:1fr auto 80px;align-items:center;gap:16px;padding:12px 16px;border:0;background:transparent;text-align:left;color:inherit;font:inherit;cursor:pointer}
+.budgetRowTap strong{font:17px Georgia,serif;color:var(--navy-900)}
+@media(max-width:760px){.budgetRowTap{grid-template-columns:1fr auto;padding:11px}.budgetRowTap em{grid-column:2}}

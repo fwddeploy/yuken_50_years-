@@ -34,7 +34,7 @@ export default function EventOperationsApp() {
   const [sections, setSections] = useState([...previewSections]);
   const [budget, setBudget] = useState<EventBudgetEntry[]>([...previewBudget]);
   const [team, setTeam] = useState<EventTeamMember[]>([]);
-  const [budgetOpen, setBudgetOpen] = useState(false);
+  const [budgetSheet, setBudgetSheet] = useState<EventBudgetEntry | "new" | null>(null);
   const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
   const [selectedUpdateId, setSelectedUpdateId] = useState<string | null>(null);
   const [selectedSectionId, setSelectedSectionId] = useState<string | null>(null);
@@ -84,7 +84,7 @@ export default function EventOperationsApp() {
       if (!state?.yilApp) return;
       if (!userRef.current && state.screen !== "login") {
         window.history.replaceState({ yilApp: true, screen: "login", eventTab: "home" }, "");
-        setScreen("login"); setTab("home"); setSelectedJobId(null); setSelectedUpdateId(null); setBudgetOpen(false); return;
+        setScreen("login"); setTab("home"); setSelectedJobId(null); setSelectedUpdateId(null); setBudgetSheet(null); return;
       }
       if (state.screen && (["login", "pin", "choose", "event", "guest"] as Screen[]).includes(state.screen)) setScreen(state.screen);
       if (state.eventTab && (["home", "updates", "malur", "taj", "budget"] as EventTab[]).includes(state.eventTab)) setTab(state.eventTab);
@@ -95,7 +95,7 @@ export default function EventOperationsApp() {
       if (sheetDepth > 0) return;
       const nextSection = typeof state.sectionId === "string" ? state.sectionId : null;
       const viewChanged = (state.screen && state.screen !== screenRef.current) || (state.eventTab && state.eventTab !== tabRef.current) || nextSection !== sectionRef.current;
-      setSelectedJobId(null); setSelectedUpdateId(null); setBudgetOpen(false); setEventSearchOpen(false); setSelectedSectionId(nextSection);
+      setSelectedJobId(null); setSelectedUpdateId(null); setBudgetSheet(null); setEventSearchOpen(false); setSelectedSectionId(nextSection);
       if (viewChanged) window.scrollTo(0, 0);
     }
     window.addEventListener("popstate", restoreFromHistory);
@@ -108,7 +108,7 @@ export default function EventOperationsApp() {
    *  does not history.back() over the entry we just wrote. */
   function anySheetLayerOpen() {
     const depth = (window.history.state as { yilSheet?: boolean | number } | null)?.yilSheet;
-    return Boolean(selectedJobId) || budgetOpen || eventSearchOpen || (typeof depth === "number" ? depth > 0 : Boolean(depth));
+    return Boolean(selectedJobId) || Boolean(budgetSheet) || eventSearchOpen || (typeof depth === "number" ? depth > 0 : Boolean(depth));
   }
 
   function navigateScreen(next: Screen, replace = false) {
@@ -118,7 +118,7 @@ export default function EventOperationsApp() {
     const closingSheet = anySheetLayerOpen();
     if (closingSheet) delete state.yilSheet;
     if (replace || closingSheet) window.history.replaceState(state, ""); else window.history.pushState(state, "");
-    setSelectedJobId(null); setSelectedUpdateId(null); setSelectedSectionId(null); setBudgetOpen(false); setEventSearchOpen(false); setScreen(next); window.scrollTo(0, 0);
+    setSelectedJobId(null); setSelectedUpdateId(null); setSelectedSectionId(null); setBudgetSheet(null); setEventSearchOpen(false); setScreen(next); window.scrollTo(0, 0);
   }
 
   function openSectionWithHistory(id: string) {
@@ -126,7 +126,7 @@ export default function EventOperationsApp() {
     const state: Record<string, unknown> = { ...(window.history.state ?? {}), yilApp: true, screen: "event" as const, eventTab: tab, sectionId: id };
     if (closingSheet) delete state.yilSheet;
     if (closingSheet) window.history.replaceState(state, ""); else window.history.pushState(state, "");
-    setSelectedJobId(null); setSelectedUpdateId(null); setBudgetOpen(false); setEventSearchOpen(false); setSelectedSectionId(id); window.scrollTo(0, 0);
+    setSelectedJobId(null); setSelectedUpdateId(null); setBudgetSheet(null); setEventSearchOpen(false); setSelectedSectionId(id); window.scrollTo(0, 0);
   }
 
   function navigateEventTab(next: EventTab) {
@@ -135,7 +135,7 @@ export default function EventOperationsApp() {
     delete state.sectionId;
     if (closingSheet) delete state.yilSheet;
     if (closingSheet) window.history.replaceState(state, ""); else window.history.pushState(state, "");
-    setSelectedSectionId(null); setEventSearchOpen(false); setSelectedJobId(null); setSelectedUpdateId(null); setBudgetOpen(false); setTab(next); window.scrollTo(0, 0);
+    setSelectedSectionId(null); setEventSearchOpen(false); setSelectedJobId(null); setSelectedUpdateId(null); setBudgetSheet(null); setTab(next); window.scrollTo(0, 0);
   }
 
   useEffect(() => {
@@ -248,12 +248,16 @@ export default function EventOperationsApp() {
     setJobs(items => items.map(item => item.id === job.id ? { ...next, updatedAt: payload.updatedAt ?? item.updatedAt } : item));
   }
 
-  async function saveBudget(entry: Omit<EventBudgetEntry, "id">) {
-    if (user?.id === previewUser.id) { setBudget(items => [{ ...entry, id: crypto.randomUUID() }, ...items]); setBudgetOpen(false); setToast("Budget entry saved in this local preview."); return; }
-    const response = await fetch("/api/budget", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(entry) });
+  async function saveBudget(entry: Omit<EventBudgetEntry, "id"> & { id?: string }) {
+    if (user?.id === previewUser.id) {
+      setBudget(items => entry.id ? items.map(item => item.id === entry.id ? { ...item, ...entry, id: entry.id } : item) : [{ ...entry, id: crypto.randomUUID() }, ...items]);
+      setBudgetSheet(null); setToast("Budget entry saved in this local preview."); return;
+    }
+    const response = await fetch("/api/budget", { method: entry.id ? "PATCH" : "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(entry) });
     const payload = await response.json() as { entry?: EventBudgetEntry; error?: string };
     if (!response.ok || !payload.entry) { setToast(payload.error || "Budget entry could not be saved."); return; }
-    setBudget(items => [payload.entry!, ...items]); setBudgetOpen(false); setToast("Budget entry saved.");
+    setBudget(items => entry.id ? items.map(item => item.id === entry.id ? payload.entry! : item) : [payload.entry!, ...items]);
+    setBudgetSheet(null); setToast("Budget entry saved.");
   }
 
   const selectedJob = jobs.find(job => job.id === selectedJobId) ?? null;
@@ -274,14 +278,14 @@ export default function EventOperationsApp() {
         : <HomeView sections={sections} jobs={jobs} query={eventQuery} ownerFilter={ownerFilter} openSection={openSectionWithHistory} openVenue={navigateEventTab} />)}
       {tab === "updates" && <UpdatesView jobs={jobs} query={eventQuery} ownerFilter={ownerFilter} openUpdate={(jobId, updateId) => { setSelectedJobId(jobId); setSelectedUpdateId(updateId); }} />}
       {(tab === "malur" || tab === "taj") && <VenueView venue={tab} jobs={jobs} user={user} openJob={id => { setSelectedUpdateId(null); setSelectedJobId(id); }} toggle={quickToggle} />}
-      {tab === "budget" && <BudgetView entries={budget} add={() => setBudgetOpen(true)} />}
+      {tab === "budget" && <BudgetView entries={budget} add={() => setBudgetSheet("new")} edit={entry => setBudgetSheet(entry)} />}
       </>}
     </div>
     <nav className="eventTabs" aria-label="Event Work">
       {tabs.filter(item => !item.core || user.isCore).map(item => <button key={item.id} className={tab === item.id ? "active" : ""} aria-current={tab === item.id ? "page" : undefined} onClick={() => navigateEventTab(item.id)}><span>{item.icon}</span>{item.label}</button>)}
     </nav>
     {selectedJob && <JobSheet job={selectedJob} user={user} sectionHeading={sections.find(section => section.id === selectedJob.sectionId)?.heading} focusUpdateId={selectedUpdateId} close={() => { setSelectedJobId(null); setSelectedUpdateId(null); }} save={saveJob} />}
-    {budgetOpen && <BudgetSheet jobs={jobs} close={() => setBudgetOpen(false)} save={saveBudget} />}
+    {budgetSheet && <BudgetSheet jobs={jobs} entry={budgetSheet === "new" ? undefined : budgetSheet} close={() => setBudgetSheet(null)} save={saveBudget} />}
     {syncStatus && (syncStatus.pendingApproval || syncStatus.needsFixing) && <div className="updateBanner syncBanner">
       <span><b>{syncStatus.pendingApproval ? "Master Sheet removals need your OK" : "The Master Sheet needs fixing"}</b><small>{syncStatus.latestSummary ?? "Open the sync screen to review."}</small></span>
       <button onClick={() => { setGuestSyncIntent(true); navigateScreen("guest"); }}>Review</button>
@@ -467,17 +471,17 @@ function VenueView({ venue, jobs, user, openJob, toggle }: { venue: "malur" | "t
   return <><section className={`venueHero ${venue}`}><div><p>{venue === "malur" ? "Sunday 15 November 2026" : "Wednesday 18 November 2026"}</p><h1>{venue === "malur" ? "YIL Malur" : "Taj West End"}</h1></div></section><div className="venueSegments" role="tablist" aria-label={`${venue === "malur" ? "Malur" : "Taj"} view`}><button className={view === "programme" ? "active" : ""} onClick={() => setView("programme")}>Programme</button><button className={view === "jobs" ? "active" : ""} onClick={() => setView("jobs")}>Jobs</button><button className={view === "preparation" ? "active" : ""} onClick={() => setView("preparation")}>Preparation</button></div>{view === "programme" && <><p className="viewInstruction">The run of the day, hour by hour. Tap a line to open the work behind it.</p><div className="programmeRows">{lines.map(([time, title]) => { const linked = venueJobs.find(job => job.title.toLocaleLowerCase("en-IN").includes(title.split(" ")[0].toLocaleLowerCase("en-IN"))); return <button key={`${time}-${title}`} onClick={() => linked && openJob(linked.id)} disabled={!linked}><time>{time}</time><span><b>{title}</b><small>{venue === "malur" ? "YIL Malur" : "Taj West End"}{linked ? ` · ${linked.ownerLabel}` : ""}</small></span><i>{linked ? "›" : ""}</i></button>; })}</div></>}{view === "jobs" && <div className="sectionCard sectionDetailCard"><div>{venueJobs.map(job => <JobRow key={job.id} job={job} open={() => openJob(job.id)} canEdit={canEditJob(user, job.ownerIds)} toggle={field => toggle(job, field)} />)}</div></div>}{view === "preparation" && <div className="sectionCard sectionDetailCard"><div>{preparationJobs.map(job => <JobRow key={job.id} job={job} open={() => openJob(job.id)} canEdit={canEditJob(user, job.ownerIds)} toggle={field => toggle(job, field)} />)}</div></div>}<button className="printDayAction" onClick={() => window.print()}>Print this day</button><SourceNote /></>;
 }
 
-function BudgetView({ entries, add }: { entries: EventBudgetEntry[]; add: () => void }) {
+function BudgetView({ entries, add, edit }: { entries: EventBudgetEntry[]; add: () => void; edit: (entry: EventBudgetEntry) => void }) {
   const total = (status: string) => entries.filter(entry => entry.status === status).reduce((sum, entry) => sum + entry.amountPaise, 0) / 100;
   const grouped = entries.reduce<Record<string, EventBudgetEntry[]>>((result, entry) => { (result[entry.category] ||= []).push(entry); return result; }, {});
-  return <><section className="guestHero staysHero"><div><p className="eyebrow">Core committee only</p><h1>Event budget</h1><p>Every planned, approved and paid amount for both evenings, entered here by the committee.</p></div></section><section className="metricGrid budgetMetrics"><article><b>₹{total("planned").toLocaleString("en-IN")}</b><span>planned</span></article><article><b>₹{total("approved").toLocaleString("en-IN")}</b><span>approved</span></article><article><b>₹{total("paid").toLocaleString("en-IN")}</b><span>paid</span></article></section><div className="sectionTitle prototypeSectionTitle"><div><p className="eyebrow">Budget activity</p><h2>Budget lines</h2></div><button className="smallAction" onClick={add}>＋ Add entry</button></div>{entries.length ? Object.entries(grouped).map(([category, items]) => <section className="updateDay budgetGroup" key={category}><header><b>{category}</b><span>{items.length}</span></header><div className="budgetList">{items.map(item => <article key={item.id}><span><b>{item.description || item.category}</b><small>{item.vendor || "No vendor yet"}</small></span><strong>₹{(item.amountPaise / 100).toLocaleString("en-IN")}</strong><em className={`budgetStatus ${item.status}`}>{item.status}</em></article>)}</div></section>) : <div className="emptyState">No budget lines yet. Tap ＋ Add entry to record the first amount.</div>}<SourceNote /></>;
+  return <><section className="guestHero staysHero"><div><p className="eyebrow">Core committee only</p><h1>Event budget</h1><p>Every planned, approved and paid amount for both evenings, entered here by the committee.</p></div></section><section className="metricGrid budgetMetrics"><article><b>₹{total("planned").toLocaleString("en-IN")}</b><span>planned</span></article><article><b>₹{total("approved").toLocaleString("en-IN")}</b><span>approved</span></article><article><b>₹{total("paid").toLocaleString("en-IN")}</b><span>paid</span></article></section><div className="sectionTitle prototypeSectionTitle"><div><p className="eyebrow">Budget activity</p><h2>Budget lines</h2></div><button className="smallAction" onClick={add}>＋ Add entry</button></div>{entries.length ? Object.entries(grouped).map(([category, items]) => <section className="updateDay budgetGroup" key={category}><header><b>{category}</b><span>{items.length}</span></header><div className="budgetList">{items.map(item => <article key={item.id}><button className="budgetRowTap" onClick={() => edit(item)} aria-label={`Edit ${item.description || item.category}`}><span><b>{item.description || item.category}</b><small>{item.vendor || "No vendor yet"}</small></span><strong>₹{(item.amountPaise / 100).toLocaleString("en-IN")}</strong><em className={`budgetStatus ${item.status}`}>{item.status}</em></button></article>)}</div></section>) : <div className="emptyState">No budget lines yet. Tap ＋ Add entry to record the first amount.</div>}<SourceNote /></>;
 }
 
-function BudgetSheet({ jobs, close, save }: { jobs: EventJob[]; close: () => void; save: (entry: Omit<EventBudgetEntry, "id">) => void | Promise<void> }) {
+function BudgetSheet({ jobs, entry, close, save }: { jobs: EventJob[]; entry?: EventBudgetEntry; close: () => void; save: (entry: Omit<EventBudgetEntry, "id"> & { id?: string }) => void | Promise<void> }) {
   useSheetHistory(close);
   const [error, setError] = useState("");
-  function submit(event: FormEvent<HTMLFormElement>) { event.preventDefault(); const form = new FormData(event.currentTarget); const amount = Number(form.get("amount")); if (!Number.isFinite(amount) || amount < 0) { setError("Enter a valid amount."); return; } void save({ jobId: String(form.get("jobId") || "") || null, category: String(form.get("category") || "").trim(), description: String(form.get("description") || "").trim(), vendor: String(form.get("vendor") || "").trim(), amountPaise: Math.round(amount * 100), status: String(form.get("status")) as EventBudgetEntry["status"] }); }
-  return <div className="sheetLayer" role="presentation"><button className="sheetShade" aria-label="Close budget entry" onClick={close} /><section className="jobSheet" role="dialog" aria-modal="true" aria-labelledby="budget-title"><header><button className="sheetBack" onClick={close}>‹ Back</button><div><p className="eyebrow">Core committee</p><h2 id="budget-title">Add budget entry</h2></div><button aria-label="Close" onClick={close}>×</button></header><div className="sheetBody"><form className="loginForm" onSubmit={submit}><label><span>Category</span><input name="category" placeholder="Venue, travel, programme…" maxLength={100} required /></label><label><span>Description</span><input name="description" placeholder="What is this amount for?" maxLength={300} required /></label><label><span>Vendor</span><input name="vendor" placeholder="Optional" maxLength={150} /></label><label><span>Related activity</span><select name="jobId" defaultValue=""><option value="">No specific activity</option>{jobs.map(job => <option key={job.id} value={job.id}>{job.title}</option>)}</select></label><div className="formPair"><label><span>Amount (₹)</span><input name="amount" type="number" inputMode="decimal" min="0" step="0.01" placeholder="0.00" required /></label><label><span>Status</span><select name="status" defaultValue="planned"><option value="planned">Planned</option><option value="approved">Approved</option><option value="paid">Paid</option><option value="cancelled">Cancelled</option></select></label></div><button className="primaryAction">Save budget entry</button><p className="formStatus errorText" role="alert">{error}</p></form></div></section></div>;
+  function submit(event: FormEvent<HTMLFormElement>) { event.preventDefault(); const form = new FormData(event.currentTarget); const amount = Number(form.get("amount")); if (!Number.isFinite(amount) || amount < 0) { setError("Enter a valid amount."); return; } void save({ ...(entry ? { id: entry.id } : {}), jobId: String(form.get("jobId") || "") || null, category: String(form.get("category") || "").trim(), description: String(form.get("description") || "").trim(), vendor: String(form.get("vendor") || "").trim(), amountPaise: Math.round(amount * 100), status: String(form.get("status")) as EventBudgetEntry["status"] }); }
+  return <div className="sheetLayer" role="presentation"><button className="sheetShade" aria-label="Close budget entry" onClick={close} /><section className="jobSheet" role="dialog" aria-modal="true" aria-labelledby="budget-title"><header><button className="sheetBack" onClick={close}>‹ Back</button><div><p className="eyebrow">Core committee</p><h2 id="budget-title">{entry ? "Edit budget entry" : "Add budget entry"}</h2></div><button aria-label="Close" onClick={close}>×</button></header><div className="sheetBody"><form className="loginForm" onSubmit={submit}><label><span>Category</span><input name="category" defaultValue={entry?.category} placeholder="Venue, travel, programme…" maxLength={100} required /></label><label><span>Description</span><input name="description" defaultValue={entry?.description} placeholder="What is this amount for?" maxLength={300} required /></label><label><span>Vendor</span><input name="vendor" defaultValue={entry?.vendor} placeholder="Optional" maxLength={150} /></label><label><span>Related activity</span><select name="jobId" defaultValue={entry?.jobId ?? ""}><option value="">No specific activity</option>{jobs.map(job => <option key={job.id} value={job.id}>{job.title}</option>)}</select></label><div className="formPair"><label><span>Amount (₹)</span><input name="amount" type="number" inputMode="decimal" min="0" step="0.01" defaultValue={entry ? (entry.amountPaise / 100).toString() : undefined} placeholder="0.00" required /></label><label><span>Status</span><select name="status" defaultValue={entry?.status ?? "planned"}><option value="planned">Planned</option><option value="approved">Approved</option><option value="paid">Paid</option><option value="cancelled">Cancelled</option></select></label></div><button className="primaryAction">{entry ? "Save changes" : "Save budget entry"}</button><p className="formStatus errorText" role="alert">{error}</p></form></div></section></div>;
 }
 
 function JobSheet({ job, user, sectionHeading, focusUpdateId, close, save }: { job: EventJob; user: EventUser; sectionHeading?: string; focusUpdateId?: string | null; close: () => void; save: (job: EventJob, updateMessage: string, attachments: File[]) => void | Promise<void> }) {

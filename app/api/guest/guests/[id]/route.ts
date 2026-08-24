@@ -11,7 +11,12 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
   if (!user) return Response.json({ error: "Sign in again." }, { status: 401 });
   const { id } = await context.params;
   try {
-    const input = await validateGuestWrite(await request.json() as GuestWriteInput);
+    const body = await request.json() as GuestWriteInput & { rsvps?: { event?: string; status?: string }[] };
+    const input = await validateGuestWrite(body);
+    // A senior guest often replies by phone or in person; the coordinator
+    // records that reply here, since the RSVP link is not the only channel.
+    const rsvps = (body.rsvps ?? []).filter((item): item is { event: "malur" | "taj"; status: "pending" | "accepted" | "declined" } =>
+      (item.event === "malur" || item.event === "taj") && (item.status === "pending" || item.status === "accepted" || item.status === "declined") && input.events.includes(item.event as "malur" | "taj"));
     const db = getDb();
     const [before] = await db.select().from(guests).where(and(eq(guests.id, id), eq(guests.active, true))).limit(1);
     if (!before) return Response.json({ error: "Guest was not found." }, { status: 404 });
@@ -25,6 +30,8 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
     const writes = [
       db.update(guests).set({ name: input.name, company: input.company, categoryId: input.categoryId, groupId: input.groupId, country: input.country, preferredLanguage: input.preferredLanguage, phone: input.phone, email: input.email, updatedAt: now }).where(eq(guests.id, id)),
       ...(["malur", "taj"] as const).map(event => db.insert(guestEventInvitations).values({ id: crypto.randomUUID(), guestId: id, event, invited: selectedEvents.has(event), rsvpStatus: selectedEvents.has(event) ? "not-invited" : "not-invited", createdAt: now, updatedAt: now }).onConflictDoUpdate({ target: [guestEventInvitations.guestId, guestEventInvitations.event], set: { invited: selectedEvents.has(event), rsvpStatus: selectedEvents.has(event) ? undefined : "not-invited", respondedAt: selectedEvents.has(event) ? undefined : null, updatedAt: now } })),
+      ...rsvps.map(item => db.update(guestEventInvitations).set({ rsvpStatus: item.status, respondedAt: item.status === "pending" ? null : now, updatedAt: now }).where(and(eq(guestEventInvitations.guestId, id), eq(guestEventInvitations.event, item.event)))),
+      ...rsvps.map(item => db.insert(auditEvents).values({ id: crypto.randomUUID(), actorId: user.personId, action: "guest.rsvp-recorded-by-coordinator", entityType: "guest", entityId: id, afterJson: JSON.stringify(item), createdAt: now })),
       db.insert(auditEvents).values({ id: crypto.randomUUID(), actorId: user.personId, action: "guest.updated", entityType: "guest", entityId: id, beforeJson: JSON.stringify({ ...before, phone: Boolean(before.phone), email: Boolean(before.email) }), afterJson: JSON.stringify({ ...input, phone: Boolean(input.phone), email: Boolean(input.email) }), createdAt: now }),
       db.insert(sheetSyncOutbox).values({ id: crypto.randomUUID(), entityType: "guest", entityId: id, operation: "upsert", payloadJson: JSON.stringify(sheetPayload), status: "pending", attempts: 0, actorId: user.personId, createdAt: now, updatedAt: now }).onConflictDoUpdate({ target: [sheetSyncOutbox.entityType, sheetSyncOutbox.entityId], set: { operation: "upsert", payloadJson: JSON.stringify(sheetPayload), status: "pending", attempts: 0, lastError: null, nextAttemptAt: null, deliveredAt: null, actorId: user.personId, updatedAt: now } }),
     ];

@@ -15,7 +15,7 @@ export type GuestRecord = {
   phone?: string;
   email?: string;
   invitations: GuestInvitation[];
-  stay?: { hotelId: string; hotelName: string; roomNumber: string };
+  stay?: { hotelId: string; hotelName: string; roomNumber: string; hotelGone?: boolean };
 };
 export type GuestCategory = { id: string; name: string };
 export type GuestAgendaItem = { id: string; date: string; time: string; title: string; details?: string };

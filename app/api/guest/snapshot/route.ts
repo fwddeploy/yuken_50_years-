@@ -21,13 +21,12 @@ export async function GET(request: Request) {
     db.select({ travelPlanId: travelPlanCategories.travelPlanId, id: guestCategories.id, name: guestCategories.name }).from(travelPlanCategories).innerJoin(guestCategories, eq(guestCategories.id, travelPlanCategories.categoryId)).where(eq(guestCategories.active, true)),
     db.select().from(travelStops).where(eq(travelStops.active, true)).orderBy(asc(travelStops.stopOrder)),
     db.select({ id: hotels.id, name: hotels.name, address: hotels.address, roomsHeld: hotels.roomsHeld }).from(hotels).where(eq(hotels.active, true)).orderBy(asc(hotels.name)),
-    db.select({ guestId: guestStays.guestId, hotelId: guestStays.hotelId, roomNumber: guestStays.roomNumber }).from(guestStays),
+    db.select({ guestId: guestStays.guestId, hotelId: guestStays.hotelId, roomNumber: guestStays.roomNumber, hotelName: hotels.name, hotelActive: hotels.active }).from(guestStays).innerJoin(hotels, eq(hotels.id, guestStays.hotelId)),
     db.select({ id: people.id, fullName: people.fullName }).from(people).where(eq(people.active, true)),
   ]);
 
   const personName = new Map(peopleRows.map(person => [person.id, person.fullName]));
   const groupName = new Map(groupRows.map(group => [group.id, group.name]));
-  const hotelName = new Map(hotelRows.map(hotel => [hotel.id, hotel.name]));
   const invitationsByGuest = groupBy(invitationRows, row => row.guestId);
   const agendaByGroup = groupBy(agendaRows, row => row.groupId);
   const categoriesByPlan = groupBy(planCategoryRows, row => row.travelPlanId);
@@ -41,7 +40,7 @@ export async function GET(request: Request) {
     groups: groupRows.map(group => ({ id: group.id, name: group.name, primaryPersonId: group.primaryPersonId ?? undefined, secondaryPersonId: group.secondaryPersonId ?? undefined, primaryName: group.primaryPersonId ? personName.get(group.primaryPersonId) : undefined, secondaryName: group.secondaryPersonId ? personName.get(group.secondaryPersonId) : undefined, guestCount: guestCountByGroup.get(group.id) ?? 0, agenda: (agendaByGroup.get(group.id) ?? []).map(item => ({ id: item.id, date: item.agendaDate, time: item.agendaTime, title: item.title, details: item.details || undefined })) })),
     guests: guestRows.map(guest => {
       const stay = stayByGuest.get(guest.id);
-      return { ...guest, groupId: guest.groupId ?? undefined, groupName: guest.groupId ? groupName.get(guest.groupId) : undefined, phone: guest.phone ?? undefined, email: guest.email ?? undefined, invitations: invitationsByGuest.get(guest.id) ?? [], stay: stay ? { hotelId: stay.hotelId, hotelName: hotelName.get(stay.hotelId) ?? "Hotel", roomNumber: stay.roomNumber } : undefined };
+      return { ...guest, groupId: guest.groupId ?? undefined, groupName: guest.groupId ? groupName.get(guest.groupId) : undefined, phone: guest.phone ?? undefined, email: guest.email ?? undefined, invitations: invitationsByGuest.get(guest.id) ?? [], stay: stay ? { hotelId: stay.hotelId, hotelName: stay.hotelName, roomNumber: stay.roomNumber, hotelGone: !stay.hotelActive || undefined } : undefined };
     }),
     travelPlans: planRows.map(plan => ({ id: plan.id, name: plan.name, event: plan.event, date: plan.travelDate, mode: plan.mode, routeName: plan.routeName, vehicleNumber: plan.vehicleNumber ?? undefined, driverName: plan.driverName ?? undefined, driverPhone: plan.driverPhone ?? undefined, conductorName: plan.conductorName ?? undefined, conductorPhone: plan.conductorPhone ?? undefined, categories: categoriesByPlan.get(plan.id) ?? [], stops: (stopsByPlan.get(plan.id) ?? []).map(stop => ({ id: stop.id, order: stop.stopOrder, time: stop.stopTime, place: stop.place })) })),
     hotels: hotelRows,

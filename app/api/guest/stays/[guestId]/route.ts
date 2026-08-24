@@ -27,3 +27,21 @@ export async function PUT(request: Request, context: { params: Promise<{ guestId
   ]);
   return Response.json(after, { headers: { "Cache-Control": "no-store" } });
 }
+
+/** A guest who cancels their hotel — or arranges their own — must leave the
+ *  'Send stay details' audience. The row is removed; the audit event keeps
+ *  the full before-state, so history is never lost. */
+export async function DELETE(request: Request, context: { params: Promise<{ guestId: string }> }) {
+  const user = await authenticateRequest(request);
+  if (!user) return Response.json({ error: "Sign in again." }, { status: 401 });
+  const { guestId } = await context.params;
+  const db = getDb();
+  const [before] = await db.select().from(guestStays).where(eq(guestStays.guestId, guestId)).limit(1);
+  if (!before) return Response.json({ error: "This guest has no hotel or room assigned." }, { status: 404 });
+  const now = new Date().toISOString();
+  await db.batch([
+    db.delete(guestStays).where(eq(guestStays.guestId, guestId)),
+    db.insert(auditEvents).values({ id: crypto.randomUUID(), actorId: user.personId, action: "guest.stay-removed", entityType: "guest_stay", entityId: guestId, beforeJson: JSON.stringify(before), afterJson: JSON.stringify(null), createdAt: now }),
+  ]);
+  return Response.json({ guestId, removed: true }, { headers: { "Cache-Control": "no-store" } });
+}
