@@ -96,6 +96,8 @@ export async function POST(request: Request) {
       vehicle_number: plan?.vehicleNumber,
       driver_name: plan?.driverName,
       driver_phone: plan?.driverPhone,
+      conductor_name: plan?.conductorName ?? undefined,
+      conductor_phone: plan?.conductorPhone ?? undefined,
       travel_stops: plan ? (stopsByPlan.get(plan.id) ?? []).sort((a, b) => a.stopOrder - b.stopOrder).map(stop => `${stop.stopTime} — ${stop.place}`).join("\n") : undefined,
       hotel_name: stay?.hotelName,
       room_number: stay?.roomNumber,
