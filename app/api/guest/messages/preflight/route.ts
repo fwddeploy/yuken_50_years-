@@ -2,6 +2,7 @@ import { and, eq, inArray } from "drizzle-orm";
 import { getDb } from "../../../../../db";
 import { auditEvents, groupAgendaItems, guestCategories, guestEventInvitations, guestGroups, guestStays, guests, hotels, messageBatches, messageRecipients, messageTemplates, travelPlanCategories, travelPlans, travelStops } from "../../../../../db/schema";
 import { GUEST_EVENT_DETAILS, preflightMessages, type GuestEvent, type MessageChannel, type MessagePreflightItem, type MessagePurpose } from "../../../../../src/domain/guest-contract";
+import { recordRefusal } from "../../../../../src/server/permissions";
 import { authenticateRequest } from "../../../../../src/server/session";
 
 type PreflightBody = { purpose?: MessagePurpose; channel?: MessageChannel; groupId?: string; event?: GuestEvent; agendaDate?: string; travelDate?: string; travelPlanId?: string; guestIds?: string[] };
@@ -37,7 +38,10 @@ export async function POST(request: Request) {
   if (!user.isCore) {
     const activeGroups = await db.select({ id: guestGroups.id, primaryPersonId: guestGroups.primaryPersonId, secondaryPersonId: guestGroups.secondaryPersonId }).from(guestGroups).where(eq(guestGroups.active, true));
     const coordinated = new Set(activeGroups.filter(group => group.primaryPersonId === user.personId || group.secondaryPersonId === user.personId).map(group => group.id));
-    if (guestRows.some(guest => !guest.groupId || !coordinated.has(guest.groupId))) return Response.json({ error: "You can send messages only to guests in the groups you coordinate." }, { status: 403 });
+    if (guestRows.some(guest => !guest.groupId || !coordinated.has(guest.groupId))) {
+      await recordRefusal(user.personId, "message.send", "message_batch", body.purpose, "Audience included guests outside this coordinator's groups.");
+      return Response.json({ error: "You can send messages only to guests in the groups you coordinate." }, { status: 403 });
+    }
   }
 
   const [templateRows, agendaRows, planRows, planCategoryRows, stopRows, stayRows, invitationRows] = await Promise.all([
@@ -48,7 +52,11 @@ export async function POST(request: Request) {
         ? db.select().from(travelPlans).where(and(eq(travelPlans.id, travelPlanId), eq(travelPlans.active, true)))
         : db.select().from(travelPlans).where(and(eq(travelPlans.travelDate, travelDate!), eq(travelPlans.active, true)))
       : Promise.resolve([]),
-    db.select().from(travelPlanCategories),
+    // A category archived by the Master Sheet vanishes from every screen, but
+    // its links to an app-created plan survive the import, so it could still
+    // route guests into a send. The audience is built from live categories only.
+    db.select({ travelPlanId: travelPlanCategories.travelPlanId, categoryId: travelPlanCategories.categoryId })
+      .from(travelPlanCategories).innerJoin(guestCategories, eq(guestCategories.id, travelPlanCategories.categoryId)).where(eq(guestCategories.active, true)),
     db.select().from(travelStops).where(eq(travelStops.active, true)),
     // Only hotels still on this year's list may be named in a message — a stay
     // whose hotel was removed by a Master Sheet pull must skip, not mislead.

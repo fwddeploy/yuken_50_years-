@@ -1,6 +1,7 @@
 import { and, eq, inArray } from "drizzle-orm";
 import { getDb } from "../../../../../db";
 import { guestCategories, travelPlanCategories, travelPlans, travelStops } from "../../../../../db/schema";
+import { recordRefusal } from "../../../../../src/server/permissions";
 import { authenticateRequest } from "../../../../../src/server/session";
 import { getRuntimeEnv } from "../../../../../src/server/runtime-env";
 import { flushGoogleSheetOutbox, queueSheetSyncStatement } from "../../../../../src/server/google-sheets";
@@ -36,6 +37,7 @@ export async function PUT(request: Request, context: { params: Promise<{ id: str
   // people riding the bus. Coordinators still see every plan and send their
   // own guests the details; they just do not build or change routes.
   if (!user.isCore) {
+    await recordRefusal(user.personId, "travel.change", "travel_plan", id, "Travel plans are arranged by the transport team.");
     return Response.json({ error: "Travel is arranged by the transport team. You can see this plan and send it to your guests, but only the core committee can change it." }, { status: 403 });
   }
   if (submittedStops.some(stop => stop.travelPlanId !== id)) return Response.json({ error: "One or more travel stops belong to another plan. Refresh and try again." }, { status: 409 });

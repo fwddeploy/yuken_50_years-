@@ -3,7 +3,7 @@ import { getDb } from "../../../../../db";
 import { auditEvents, guestCategories, guestEventInvitations, guestGroups, guests, sheetSyncOutbox } from "../../../../../db/schema";
 import { flushGoogleSheetOutbox } from "../../../../../src/server/google-sheets";
 import { waitUntil } from "cloudflare:workers";
-import { mayManageGuest } from "../../../../../src/server/permissions";
+import { mayManageGuest, recordRefusal } from "../../../../../src/server/permissions";
 import { authenticateRequest } from "../../../../../src/server/session";
 import { GuestWriteError, type GuestWriteInput, validateGuestWrite } from "../../../../../src/server/guest-write";
 
@@ -11,7 +11,7 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
   const user = await authenticateRequest(request);
   if (!user) return Response.json({ error: "Sign in again." }, { status: 401 });
   const { id } = await context.params;
-  if (!await mayManageGuest(user, id)) return Response.json({ error: "This guest is not in one of your guest groups." }, { status: 403 });
+  if (!await mayManageGuest(user, id)) { await recordRefusal(user.personId, "guest.change", "guest", id, "Guest is outside this coordinator's groups."); return Response.json({ error: "This guest is not in one of your guest groups." }, { status: 403 }); }
   try {
     const body = await request.json() as GuestWriteInput & { rsvps?: { event?: string; status?: string }[] };
     const input = await validateGuestWrite(body);
@@ -50,7 +50,7 @@ export async function DELETE(request: Request, context: { params: Promise<{ id: 
   const user = await authenticateRequest(request);
   if (!user) return Response.json({ error: "Sign in again." }, { status: 401 });
   const { id } = await context.params;
-  if (!await mayManageGuest(user, id)) return Response.json({ error: "This guest is not in one of your guest groups." }, { status: 403 });
+  if (!await mayManageGuest(user, id)) { await recordRefusal(user.personId, "guest.change", "guest", id, "Guest is outside this coordinator's groups."); return Response.json({ error: "This guest is not in one of your guest groups." }, { status: 403 }); }
   const db = getDb();
   const [before] = await db.select().from(guests).where(and(eq(guests.id, id), eq(guests.active, true))).limit(1);
   if (!before) return Response.json({ error: "Guest was not found." }, { status: 404 });

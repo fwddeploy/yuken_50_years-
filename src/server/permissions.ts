@@ -1,6 +1,6 @@
 import { and, eq } from "drizzle-orm";
 import { getDb } from "../../db";
-import { guestGroups, guests, jobAssignments, jobs } from "../../db/schema";
+import { auditEvents, guestGroups, guests, jobAssignments, jobs } from "../../db/schema";
 
 export async function mayEditJob(user: { personId: string; isCore: boolean }, jobId: string) {
   if (user.isCore) return true;
@@ -26,4 +26,24 @@ export async function mayManageGuest(user: { personId: string; isCore: boolean }
   const [guest] = await getDb().select({ groupId: guests.groupId }).from(guests).where(and(eq(guests.id, guestId), eq(guests.active, true))).limit(1);
   if (!guest?.groupId) return false;
   return (await coordinatedGroupIds(user.personId)).has(guest.groupId);
+}
+
+/** A refusal used to leave nothing behind, so a coordinator repeatedly reaching
+ *  for work that is not theirs — by accident or otherwise — was invisible. The
+ *  refusal is recorded and the caller still gets its 403; a failure to write
+ *  the record must never turn a refusal into an error the user sees. */
+export async function recordRefusal(personId: string, action: string, entityType: string, entityId: string, reason: string) {
+  try {
+    await getDb().insert(auditEvents).values({
+      id: crypto.randomUUID(),
+      actorId: personId,
+      action: `refused.${action}`,
+      entityType,
+      entityId,
+      afterJson: JSON.stringify({ reason }),
+      createdAt: new Date().toISOString(),
+    });
+  } catch {
+    // Recording is best effort; the refusal itself has already been decided.
+  }
 }
