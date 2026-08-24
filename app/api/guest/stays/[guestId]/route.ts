@@ -1,12 +1,14 @@
 import { and, eq } from "drizzle-orm";
 import { getDb } from "../../../../../db";
 import { auditEvents, guestStays, guests, hotels } from "../../../../../db/schema";
+import { mayManageGuest } from "../../../../../src/server/permissions";
 import { authenticateRequest } from "../../../../../src/server/session";
 
 export async function PUT(request: Request, context: { params: Promise<{ guestId: string }> }) {
   const user = await authenticateRequest(request);
   if (!user) return Response.json({ error: "Sign in again." }, { status: 401 });
   const { guestId } = await context.params;
+  if (!await mayManageGuest(user, guestId)) return Response.json({ error: "This guest is not in one of your guest groups." }, { status: 403 });
   const body = await request.json() as { hotelId?: string; roomNumber?: string };
   const hotelId = body.hotelId?.trim() ?? "", roomNumber = body.roomNumber?.trim() ?? "";
   if (!hotelId || !roomNumber) return Response.json({ error: "Choose a hotel and enter the room number." }, { status: 400 });
@@ -35,6 +37,7 @@ export async function DELETE(request: Request, context: { params: Promise<{ gues
   const user = await authenticateRequest(request);
   if (!user) return Response.json({ error: "Sign in again." }, { status: 401 });
   const { guestId } = await context.params;
+  if (!await mayManageGuest(user, guestId)) return Response.json({ error: "This guest is not in one of your guest groups." }, { status: 403 });
   const db = getDb();
   const [before] = await db.select().from(guestStays).where(eq(guestStays.guestId, guestId)).limit(1);
   if (!before) return Response.json({ error: "This guest has no hotel or room assigned." }, { status: 404 });

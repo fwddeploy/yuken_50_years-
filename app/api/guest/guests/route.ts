@@ -3,6 +3,7 @@ import { auditEvents, guestCategories, guestEventInvitations, guestGroups, guest
 import { eq } from "drizzle-orm";
 import { flushGoogleSheetOutbox } from "../../../../src/server/google-sheets";
 import { waitUntil } from "cloudflare:workers";
+import { coordinatedGroupIds } from "../../../../src/server/permissions";
 import { authenticateRequest } from "../../../../src/server/session";
 import { GuestWriteError, type GuestWriteInput, validateGuestWrite } from "../../../../src/server/guest-write";
 
@@ -11,6 +12,11 @@ export async function POST(request: Request) {
   if (!user) return Response.json({ error: "Sign in again." }, { status: 401 });
   try {
     const input = await validateGuestWrite(await request.json() as GuestWriteInput);
+    // A non-core coordinator may only add a guest into one of their own groups,
+    // otherwise the new guest would land in somebody else's list.
+    if (!user.isCore && (!input.groupId || !(await coordinatedGroupIds(user.personId)).has(input.groupId))) {
+      return Response.json({ error: "Choose one of your own guest groups for this guest." }, { status: 403 });
+    }
     const id = crypto.randomUUID();
     const now = new Date().toISOString();
     const db = getDb();

@@ -48,6 +48,10 @@ const worker = {
   },
 
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+    return withSecurityHeaders(await worker.handle(request, env, ctx));
+  },
+
+  async handle(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
 
     if (url.pathname === "/_vinext/image") {
@@ -64,5 +68,28 @@ const worker = {
     return handler.fetch(request, env, ctx);
   },
 };
+
+/** Browser-side protections for an app that holds guest contact details.
+ *  frame-ancestors is set instead of a full script policy because the app is
+ *  server-rendered with inline bootstrap scripts; a script-src policy would
+ *  have to allow 'unsafe-inline' and would buy nothing. Camera stays allowed
+ *  so coordinators can attach a photo to an activity update. */
+const SECURITY_HEADERS: Record<string, string> = {
+  "Strict-Transport-Security": "max-age=63072000; includeSubDomains",
+  "X-Content-Type-Options": "nosniff",
+  "X-Frame-Options": "DENY",
+  "Content-Security-Policy": "frame-ancestors 'none'",
+  "Referrer-Policy": "strict-origin-when-cross-origin",
+  "Permissions-Policy": "camera=(self), microphone=(), geolocation=(), payment=(), usb=()",
+  "Cross-Origin-Opener-Policy": "same-origin",
+};
+
+function withSecurityHeaders(response: Response): Response {
+  // 101/204/304 carry no body and must not be rebuilt.
+  if (response.status === 101 || response.status === 204 || response.status === 304) return response;
+  const headers = new Headers(response.headers);
+  for (const [name, value] of Object.entries(SECURITY_HEADERS)) if (!headers.has(name)) headers.set(name, value);
+  return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
+}
 
 export default worker;
