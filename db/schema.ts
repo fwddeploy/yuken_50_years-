@@ -139,7 +139,7 @@ export const sheetSyncOutbox = sqliteTable("sheet_sync_outbox", {
   entityId: text("entity_id").notNull(),
   operation: text("operation", { enum: ["upsert", "archive", "replace_scope"] }).notNull(),
   payloadJson: text("payload_json").notNull(),
-  status: text("status", { enum: ["pending", "delivered", "failed"] }).notNull().default("pending"),
+  status: text("status", { enum: ["pending", "sending", "delivered", "failed", "stuck"] }).notNull().default("pending"),
   attempts: integer("attempts").notNull().default(0),
   lastError: text("last_error"),
   nextAttemptAt: text("next_attempt_at"),

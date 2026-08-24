@@ -20,7 +20,9 @@ export async function validateGuestWrite(body: GuestWriteInput) {
   const company = body.company?.trim() ?? "";
   const categoryId = body.categoryId?.trim() ?? "";
   const groupId = body.groupId?.trim() || null;
-  const country = body.country?.trim() || "India";
+  // A blank country used to become "India" here and on import, so an unrelated
+  // edit then wrote that invented value back into the Master Sheet.
+  const country = body.country?.trim() ?? "";
   const preferredLanguage = parseGuestLanguage(body.preferredLanguage ?? "");
   const rawPhone = body.phone?.trim() || null;
   const phone = rawPhone ? sendablePhone(rawPhone) : null;

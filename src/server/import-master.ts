@@ -170,6 +170,24 @@ export async function applyMasterPayload(payload: MasterPayload, appliedBy?: str
     database.prepare("INSERT INTO travel_plan_categories (travel_plan_id, category_id) SELECT json_extract(value,'$.planId'), json_extract(value,'$.categoryId') FROM json_each(?)").bind(json(guest.planCategories)),
     jsonUpsert(database, "travel_stops", "id, travel_plan_id, stop_order, stop_time, place, active, source_updated_at, created_at, updated_at", "json_extract(value,'$.id'), json_extract(value,'$.planId'), json_extract(value,'$.order'), json_extract(value,'$.time'), json_extract(value,'$.place'), 1, ?, ?, ?", "travel_plan_id=excluded.travel_plan_id, stop_order=excluded.stop_order, stop_time=excluded.stop_time, place=excluded.place, active=1, source_updated_at=excluded.source_updated_at, updated_at=excluded.updated_at", [batchId, now, now, json(guest.stops)]),
     jsonUpsert(database, "hotels", "id, name, address, rooms_held, active, source_updated_at, created_at, updated_at", "json_extract(value,'$.id'), json_extract(value,'$.name'), json_extract(value,'$.address'), json_extract(value,'$.roomsHeld'), 1, ?, ?, ?", "name=excluded.name, address=excluded.address, rooms_held=excluded.rooms_held, active=1, source_updated_at=excluded.source_updated_at, updated_at=excluded.updated_at", [batchId, now, now, json(guest.hotels)]),
+    // Archiving is done by absence and in bulk, so without these rows a guest,
+    // a job or a person could leave the active workflows with nothing naming
+    // them — only a count. Each departure is now recorded individually.
+    database.prepare(`INSERT INTO audit_events (id, actor_id, action, entity_type, entity_id, before_json, sync_batch_id, created_at)
+      SELECT lower(hex(randomblob(16))), ?, 'master.archived-by-sheet', 'person', id, json_object('fullName', full_name), ?, ?
+      FROM people WHERE active=1 AND (source_updated_at IS NULL OR source_updated_at<>?)`).bind(appliedBy ?? null, batchId, now, batchId),
+    database.prepare(`INSERT INTO audit_events (id, actor_id, action, entity_type, entity_id, before_json, sync_batch_id, created_at)
+      SELECT lower(hex(randomblob(16))), ?, 'master.archived-by-sheet', 'job', id, json_object('title', title), ?, ?
+      FROM jobs WHERE active=1 AND (source_updated_at IS NULL OR source_updated_at<>?)`).bind(appliedBy ?? null, batchId, now, batchId),
+    database.prepare(`INSERT INTO audit_events (id, actor_id, action, entity_type, entity_id, before_json, sync_batch_id, created_at)
+      SELECT lower(hex(randomblob(16))), ?, 'master.archived-by-sheet', 'guest', id, json_object('name', name), ?, ?
+      FROM guests WHERE active=1 AND (source_updated_at IS NULL OR (source_updated_at<>'app' AND source_updated_at<>?))`).bind(appliedBy ?? null, batchId, now, batchId),
+    // Somebody gaining or losing core access changes what they can reach, and
+    // it happened through a spreadsheet cell with nothing written down.
+    database.prepare(`INSERT INTO audit_events (id, actor_id, action, entity_type, entity_id, after_json, sync_batch_id, created_at)
+      SELECT lower(hex(randomblob(16))), ?, 'master.core-access-changed', 'person', p.id, json_object('fullName', p.full_name, 'nowCore', json_extract(value,'$.isCore')), ?, ?
+      FROM json_each(?) JOIN people p ON p.id = json_extract(value,'$.id')
+      WHERE p.is_core <> json_extract(value,'$.isCore')`).bind(appliedBy ?? null, batchId, now, json(peopleRows)),
     database.prepare("UPDATE people SET active=0, updated_at=? WHERE active=1 AND (source_updated_at IS NULL OR source_updated_at<>?)").bind(now, batchId),
     database.prepare("UPDATE sections SET active=0, updated_at=? WHERE active=1 AND (source_updated_at IS NULL OR source_updated_at<>?)").bind(now, batchId),
     database.prepare("UPDATE jobs SET active=0, updated_at=? WHERE active=1 AND (source_updated_at IS NULL OR source_updated_at<>?)").bind(now, batchId),
@@ -199,7 +217,7 @@ function normalizeGuestPayload(guest: GuestMasterPayload | undefined, peopleByIn
   const categoryByName = new Map(categories.map(row => [row.name.trim().toLocaleLowerCase("en-IN"), row]));
   const groupByName = new Map(groups.map(row => [row.name.trim().toLocaleLowerCase("en-IN"), row]));
   const planByName = new Map(plans.map(row => [row.name.trim().toLocaleLowerCase("en-IN"), row]));
-  const guestRows = guests.map(row => ({ id: row.recordId, name: row.name.trim(), company: row.company?.trim() || "", categoryId: categoryByName.get(row.categoryName.trim().toLocaleLowerCase("en-IN"))?.recordId, groupId: row.groupName ? groupByName.get(row.groupName.trim().toLocaleLowerCase("en-IN"))?.recordId ?? null : null, country: row.country?.trim() || "India", language: parseGuestLanguage(row.preferredLanguage), phone: row.phone?.trim() || null, email: row.email?.trim().toLocaleLowerCase("en-IN") || null }));
+  const guestRows = guests.map(row => ({ id: row.recordId, name: row.name.trim(), company: row.company?.trim() || "", categoryId: categoryByName.get(row.categoryName.trim().toLocaleLowerCase("en-IN"))?.recordId, groupId: row.groupName ? groupByName.get(row.groupName.trim().toLocaleLowerCase("en-IN"))?.recordId ?? null : null, country: row.country?.trim() || "", language: parseGuestLanguage(row.preferredLanguage), phone: row.phone?.trim() || null, email: row.email?.trim().toLocaleLowerCase("en-IN") || null }));
   return {
     categories: categories.map(row => ({ id: row.recordId, name: row.name.trim() })),
     groups: groups.map(row => ({ id: row.recordId, name: row.name.trim(), primaryPersonId: row.primaryInitials ? peopleByInitials.get(row.primaryInitials.trim().toUpperCase())?.recordId ?? null : null, secondaryPersonId: row.secondaryInitials ? peopleByInitials.get(row.secondaryInitials.trim().toUpperCase())?.recordId ?? null : null })),

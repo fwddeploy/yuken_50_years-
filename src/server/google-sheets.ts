@@ -43,7 +43,7 @@ export async function getGoogleSheetsStatus() {
   const database = getRuntimeEnv().DB;
   const [pending, failed, delivered] = await Promise.all([
     database.prepare("SELECT COUNT(*) AS count FROM sheet_sync_outbox WHERE status IN ('pending','sending')").first<{ count: number }>(),
-    database.prepare("SELECT COUNT(*) AS count FROM sheet_sync_outbox WHERE status='failed'").first<{ count: number }>(),
+    database.prepare("SELECT COUNT(*) AS count FROM sheet_sync_outbox WHERE status IN ('failed','stuck')").first<{ count: number }>(),
     database.prepare("SELECT COUNT(*) AS count FROM sheet_sync_outbox WHERE status='delivered'").first<{ count: number }>(),
   ]);
   return { configured: googleSheetsConfigured(), pending: Number(pending?.count ?? 0), failed: Number(failed?.count ?? 0), delivered: Number(delivered?.count ?? 0) };
@@ -107,13 +107,30 @@ export async function flushGoogleSheetOutbox(limit = 25) {
   }
 }
 
-function failureStatements(database: D1Database, rows: { id: string; updatedAt: string; attempts: number }[], messageFor: (row: { id: string; updatedAt: string; attempts: number }) => string) {
+/** After this many attempts a write is treated as stuck rather than retried
+ *  for ever: it stops consuming every flush, and it becomes visible instead of
+ *  quietly cycling. A fresh edit to the same record clears the state and it is
+ *  tried again from zero. */
+const MAX_SHEET_WRITE_ATTEMPTS = 8;
+
+function failureStatements(database: D1Database, rows: { id: string; entityType?: string; entityId?: string; updatedAt: string; attempts: number }[], messageFor: (row: { id: string; updatedAt: string; attempts: number }) => string) {
   const failedAt = new Date();
-  return rows.map(row => {
+  const statements: D1PreparedStatement[] = [];
+  for (const row of rows) {
+    const attempts = row.attempts + 1;
+    const message = messageFor(row).slice(0, 500);
+    if (attempts >= MAX_SHEET_WRITE_ATTEMPTS) {
+      statements.push(database.prepare("UPDATE sheet_sync_outbox SET status='stuck', attempts=?, last_error=?, next_attempt_at=NULL, updated_at=? WHERE id=? AND updated_at=?")
+        .bind(attempts, message, failedAt.toISOString(), row.id, row.updatedAt));
+      statements.push(database.prepare("INSERT INTO audit_events (id, action, entity_type, entity_id, after_json, created_at) VALUES (?, 'sheet.write-stuck', ?, ?, ?, ?)")
+        .bind(crypto.randomUUID(), row.entityType ?? "sheet_sync_outbox", row.entityId ?? row.id, JSON.stringify({ attempts, lastError: message }), failedAt.toISOString()));
+      continue;
+    }
     const waitMinutes = Math.min(60, 2 ** Math.min(row.attempts, 5));
-    return database.prepare("UPDATE sheet_sync_outbox SET status='failed', attempts=attempts+1, last_error=?, next_attempt_at=?, updated_at=? WHERE id=? AND updated_at=?")
-      .bind(messageFor(row).slice(0, 500), new Date(failedAt.getTime() + waitMinutes * 60_000).toISOString(), failedAt.toISOString(), row.id, row.updatedAt);
-  });
+    statements.push(database.prepare("UPDATE sheet_sync_outbox SET status='failed', attempts=?, last_error=?, next_attempt_at=?, updated_at=? WHERE id=? AND updated_at=?")
+      .bind(attempts, message, new Date(failedAt.getTime() + waitMinutes * 60_000).toISOString(), failedAt.toISOString(), row.id, row.updatedAt));
+  }
+  return statements;
 }
 
 export async function fetchGoogleSheetsMaster(): Promise<MasterPayload> {

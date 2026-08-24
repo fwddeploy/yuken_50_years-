@@ -1,6 +1,6 @@
 import { and, eq, inArray } from "drizzle-orm";
 import { getDb } from "../../../../../db";
-import { groupAgendaItems, guestCategories, guestEventInvitations, guestGroups, guestStays, guests, hotels, messageBatches, messageRecipients, messageTemplates, travelPlanCategories, travelPlans, travelStops } from "../../../../../db/schema";
+import { auditEvents, groupAgendaItems, guestCategories, guestEventInvitations, guestGroups, guestStays, guests, hotels, messageBatches, messageRecipients, messageTemplates, travelPlanCategories, travelPlans, travelStops } from "../../../../../db/schema";
 import { GUEST_EVENT_DETAILS, preflightMessages, type GuestEvent, type MessageChannel, type MessagePreflightItem, type MessagePurpose } from "../../../../../src/domain/guest-contract";
 import { authenticateRequest } from "../../../../../src/server/session";
 
@@ -53,7 +53,7 @@ export async function POST(request: Request) {
     // Only hotels still on this year's list may be named in a message — a stay
     // whose hotel was removed by a Master Sheet pull must skip, not mislead.
     db.select({ guestId: guestStays.guestId, hotelId: guestStays.hotelId, roomNumber: guestStays.roomNumber, hotelName: hotels.name }).from(guestStays).innerJoin(hotels, and(eq(hotels.id, guestStays.hotelId), eq(hotels.active, true))).where(inArray(guestStays.guestId, guestIds)),
-    body.purpose === "invitation" || body.purpose === "travel" ? db.select({ guestId: guestEventInvitations.guestId, event: guestEventInvitations.event, invited: guestEventInvitations.invited }).from(guestEventInvitations).where(inArray(guestEventInvitations.guestId, guestIds)) : Promise.resolve([]),
+    db.select({ guestId: guestEventInvitations.guestId, event: guestEventInvitations.event, invited: guestEventInvitations.invited }).from(guestEventInvitations).where(inArray(guestEventInvitations.guestId, guestIds)),
   ]);
   if (body.purpose === "travel" && !planRows.length) return Response.json({ error: travelPlanId ? "That travel plan no longer exists. Refresh and try again." : "There is no travel plan for that day yet." }, { status: 409 });
   const agendaLines = [...agendaRows].sort((a, b) => a.agendaTime.localeCompare(b.agendaTime)).map(item => `${item.agendaTime} — ${item.title}${item.details ? ` — ${item.details}` : ""}`).join("\n");
@@ -74,6 +74,14 @@ export async function POST(request: Request) {
     for (const guest of guestRows) {
       const plan = planByCategory.get(guest.categoryId);
       if (plan && !invitedTo.has(`${guest.id}:${plan.event}`)) notInvited.set(guest.id, guest.name);
+    }
+  }
+  // Agenda and hotel messages name no event, so they used to reach a guest who
+  // is not coming at all. Somebody invited to neither evening is not ours to
+  // write to for any reason.
+  if (body.purpose === "agenda" || body.purpose === "stay") {
+    for (const guest of guestRows) {
+      if (!invitedTo.has(`${guest.id}:malur`) && !invitedTo.has(`${guest.id}:taj`)) notInvited.set(guest.id, guest.name);
     }
   }
 
@@ -118,9 +126,11 @@ export async function POST(request: Request) {
   ];
   const total = items.length, readyTotal = result.ready, skippedTotal = total - readyTotal;
 
+  const templateVersions = new Map(templateRows.map(template => [template.id, template.version]));
   const batchId = crypto.randomUUID();
   const now = new Date().toISOString();
   await db.batch([
+    db.insert(auditEvents).values({ id: crypto.randomUUID(), actorId: user.personId, action: "guest.message-batch-reviewed", entityType: "message_batch", entityId: batchId, afterJson: JSON.stringify({ purpose: body.purpose, channel: body.channel, total, ready: readyTotal, skipped: skippedTotal }), createdAt: now }),
     db.insert(messageBatches).values({ id: batchId, groupId: body.groupId || null, event: (body.purpose === "travel" ? singlePlanEvent(planRows) : body.event) || null, agendaDate: body.agendaDate || null, purpose: body.purpose, channel: body.channel, status: "preflight", audienceJson: JSON.stringify({ guestIds }), totalCount: total, readyCount: readyTotal, skippedCount: skippedTotal, createdBy: user.personId, createdAt: now }),
     ...items.map(item => {
       const input = recipientInputById.get(item.guestId);
@@ -131,7 +141,9 @@ export async function POST(request: Request) {
         templateId: item.templateId || null,
         status: item.status,
         reason: item.reason ? JSON.stringify({ code: item.reason, missing: item.missing ?? [] }) : null,
-        payloadJson: JSON.stringify({ phone: input?.phone ?? null, email: input?.email ?? null, language: input?.language, variables: input?.variables ?? {} }),
+        // The template version is frozen alongside the variables so the send
+        // can tell whether the wording was edited after this review.
+        payloadJson: JSON.stringify({ phone: input?.phone ?? null, email: input?.email ?? null, language: input?.language, templateVersion: item.templateId ? templateVersions.get(item.templateId) ?? null : null, variables: input?.variables ?? {} }),
         createdAt: now,
         updatedAt: now,
       });

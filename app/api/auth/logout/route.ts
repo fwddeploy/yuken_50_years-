@@ -1,12 +1,20 @@
 import { eq } from "drizzle-orm";
 import { getDb } from "../../../../db";
-import { sessions } from "../../../../db/schema";
+import { auditEvents, sessions } from "../../../../db/schema";
 import { authenticateRequest, clearSessionCookie } from "../../../../src/server/session";
 
 export async function POST(request: Request) {
   try {
     const session = await authenticateRequest(request);
-    if (session) await getDb().update(sessions).set({ revokedAt: new Date().toISOString() }).where(eq(sessions.id, session.sessionId));
+    if (session) {
+    const endedAt = new Date().toISOString();
+    // A session had a recorded start and no recorded end, so "were they still
+    // signed in when that changed?" had no answer.
+    await getDb().batch([
+      getDb().update(sessions).set({ revokedAt: endedAt }).where(eq(sessions.id, session.sessionId)),
+      getDb().insert(auditEvents).values({ id: crypto.randomUUID(), actorId: session.personId, action: "session.signed-out", entityType: "session", entityId: session.sessionId, createdAt: endedAt }),
+    ]);
+  }
   } catch {
     // Clearing the browser cookie is still safe if the stored session is already unavailable.
   }

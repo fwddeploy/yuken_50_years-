@@ -187,6 +187,14 @@ export type MessagePreflightItem = {
  *  8-15 digits long. Returns the cleaned value, or null when unsendable —
  *  used both when a guest is saved and when a batch is reviewed, so 'TBD'
  *  or a 5-digit fragment can never count as a reachable contact. */
+/** An address the mail provider can actually deliver to. A non-empty string
+ *  was previously enough, so "ask reception" counted as reachable and failed
+ *  one recipient at a time after the send was confirmed. */
+export function sendableEmail(value: string | null | undefined): string | null {
+  const cleaned = (value ?? "").trim();
+  return /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/u.test(cleaned) ? cleaned : null;
+}
+
 export function sendablePhone(value: string | null | undefined): string | null {
   const cleaned = (value ?? "").replace(/[\s\-.()]/gu, "");
   return /^\+?\d{8,15}$/u.test(cleaned) ? cleaned : null;
@@ -194,7 +202,7 @@ export function sendablePhone(value: string | null | undefined): string | null {
 
 export function preflightMessages(input: { purpose: MessagePurpose; channel: MessageChannel; templates: MessageTemplate[]; recipients: MessageRecipient[] }) {
   const items: MessagePreflightItem[] = input.recipients.map(recipient => {
-    const contact = input.channel === "whatsapp" ? sendablePhone(recipient.phone) : recipient.email;
+    const contact = input.channel === "whatsapp" ? sendablePhone(recipient.phone) : sendableEmail(recipient.email);
     if (!clean(contact ?? undefined)) return { guestId: recipient.guestId, guestName: recipient.guestName, status: "skipped", reason: "missing-contact" };
     const template = input.templates.find(item => item.approved && item.purpose === input.purpose && item.channel === input.channel && item.language === recipient.language);
     if (!template) return { guestId: recipient.guestId, guestName: recipient.guestName, status: "skipped", reason: "template-not-approved" };

@@ -1,9 +1,10 @@
 import { and, eq, inArray, sql } from "drizzle-orm";
 import { getDb } from "../../../../../db";
 import { auditEvents, guestEventInvitations, guestInvitationRsvpTokens, guests, messageBatches, messageRecipients, messageTemplates } from "../../../../../db/schema";
-import { renderTemplate, type GuestLanguage } from "../../../../../src/domain/guest-contract";
+import { renderTemplate, sendableEmail, sendablePhone, type GuestLanguage } from "../../../../../src/domain/guest-contract";
 import { createPublicToken, hashPublicToken } from "../../../../../src/security/crypto";
 import { deliverEmail, deliveryConfiguration, deliverWhatsApp } from "../../../../../src/server/message-delivery";
+import { coordinatedGroupIds } from "../../../../../src/server/permissions";
 import { authenticateRequest } from "../../../../../src/server/session";
 
 type SendBody = { batchId?: string };
@@ -11,6 +12,7 @@ type RecipientPayload = {
   phone?: string | null;
   email?: string | null;
   language?: GuestLanguage;
+  templateVersion?: number | null;
   variables?: Record<string, string | null | undefined>;
 };
 
@@ -41,9 +43,13 @@ export async function POST(request: Request) {
   const templateIds = [...new Set(recipients.map(item => item.templateId).filter((id): id is string => Boolean(id)))];
   const templates = templateIds.length ? await db.select().from(messageTemplates).where(inArray(messageTemplates.id, templateIds)) : [];
   const templateById = new Map(templates.map(template => [template.id, template]));
-  // Minutes can pass between review and send; a guest archived in that window
-  // must not be messaged — re-check active for EVERY purpose, not just invitations.
-  const activeGuestIds = new Set((await db.select({ id: guests.id }).from(guests).where(and(inArray(guests.id, recipients.map(item => item.guestId)), eq(guests.active, true)))).map(row => row.id));
+  // Minutes can pass between review and send. A guest archived in that window
+  // must not be messaged, a correction made to their name or number must be
+  // the one used, and the sender must still be allowed to write to them —
+  // authority was previously checked only at review.
+  const liveGuests = new Map((await db.select({ id: guests.id, name: guests.name, phone: guests.phone, email: guests.email, groupId: guests.groupId })
+    .from(guests).where(and(inArray(guests.id, recipients.map(item => item.guestId)), eq(guests.active, true)))).map(row => [row.id, row]));
+  const coordinated = user.isCore ? null : await coordinatedGroupIds(user.personId);
   await db.update(messageBatches).set({ status: "processing" }).where(eq(messageBatches.id, batchId));
 
   let processed = 0;
@@ -57,8 +63,13 @@ export async function POST(request: Request) {
     if ((claimed.meta.changes ?? 0) !== 1) continue;
     processed += 1;
 
-    if (!activeGuestIds.has(recipient.guestId)) {
+    const liveGuest = liveGuests.get(recipient.guestId);
+    if (!liveGuest) {
       await failRecipient(recipient.id, "This guest was removed from active coordination after the review.");
+      continue;
+    }
+    if (coordinated && (!liveGuest.groupId || !coordinated.has(liveGuest.groupId))) {
+      await failRecipient(recipient.id, "This guest moved out of your guest groups after the review.");
       continue;
     }
     const template = recipient.templateId ? templateById.get(recipient.templateId) : undefined;
@@ -73,8 +84,16 @@ export async function POST(request: Request) {
       await failRecipient(recipient.id, "The guest language is invalid.");
       continue;
     }
+    // Re-approving a template edits the same row in place, so the id alone
+    // does not prove the wording is the one that was reviewed.
+    if (typeof payload.templateVersion === "number" && payload.templateVersion !== template.version) {
+      await failRecipient(recipient.id, "The wording of this template was changed after review. Review the message again before sending.");
+      continue;
+    }
 
     const variables = Object.fromEntries(Object.entries(payload.variables ?? {}).map(([key, value]) => [key, value == null ? "" : String(value)]));
+    // A name corrected between review and send is the one the guest should see.
+    if (liveGuest.name) variables.guest_name = liveGuest.name;
     let invitation: { id: string; tokenId: string } | null = null;
     if (batch.purpose === "invitation") {
       if (!batch.event) { await failRecipient(recipient.id, "The invitation event is missing."); continue; }
@@ -93,9 +112,9 @@ export async function POST(request: Request) {
 
     const renderedSubject = template.subject ? renderTemplate(template.subject, variables) : "";
     const renderedBody = renderTemplate(template.body, variables);
-    const destination = batch.channel === "whatsapp" ? payload.phone?.trim() : payload.email?.trim();
+    const destination = batch.channel === "whatsapp" ? sendablePhone(liveGuest.phone) : sendableEmail(liveGuest.email);
     if (!destination) {
-      await failRecipient(recipient.id, "The reviewed contact method is missing.", invitation);
+      await failRecipient(recipient.id, "This guest has no usable number or email address now.", invitation);
       continue;
     }
     if (batch.channel === "whatsapp" && renderedBody.length > 4_000) {
@@ -134,6 +153,9 @@ async function failRecipient(id: string, error: string, invitation?: { id: strin
   const now = new Date().toISOString();
   await db.batch([
     db.update(messageRecipients).set({ status: "failed", lastError: error, updatedAt: now }).where(eq(messageRecipients.id, id)),
+    // Failures before the provider is even reached used to leave no trace, so
+    // "why did forty people not get this?" could not be answered afterwards.
+    db.insert(auditEvents).values({ id: crypto.randomUUID(), action: "guest.message-not-sent", entityType: "message_recipient", entityId: id, afterJson: JSON.stringify({ reason: error }), createdAt: now }),
     ...(invitation ? [db.delete(guestInvitationRsvpTokens).where(eq(guestInvitationRsvpTokens.id, invitation.tokenId))] : []),
   ]);
 }
