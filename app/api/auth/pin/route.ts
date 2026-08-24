@@ -15,7 +15,7 @@ export async function POST(request: Request) {
   const db = getDb();
   await db.batch([
     db.update(people).set({ pinHash: hash, pinSalt: salt, mustChangePin: false, updatedAt: now }).where(eq(people.id, session.personId)),
-    db.insert(auditEvents).values({ id: crypto.randomUUID(), actorId: session.personId, action: "credential.pin-changed", entityType: "person", entityId: session.personId }),
+    db.insert(auditEvents).values({ id: crypto.randomUUID(), actorId: session.personId, action: "credential.pin-changed", entityType: "person", entityId: session.personId, createdAt: new Date().toISOString() }),
   ]);
   return Response.json({ ok: true }, { headers: { "Cache-Control": "no-store" } });
 }

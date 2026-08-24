@@ -24,7 +24,13 @@ export async function POST(request: Request) {
     if (!valid) {
       const failures = person.failedLoginCount + 1;
       const lockedUntil = failures >= MAX_FAILURES ? new Date(now.getTime() + LOCK_MINUTES * 60_000).toISOString() : null;
-      await db.update(people).set({ failedLoginCount: failures, lockedUntil, updatedAt: now.toISOString() }).where(eq(people.id, person.id));
+      // A wrong PIN left no trace at all, and the counter that recorded it was
+      // wiped by the next success — so a burst of guesses was invisible after
+      // the fact. Each attempt is now a row of its own.
+      await db.batch([
+        db.update(people).set({ failedLoginCount: failures, lockedUntil, updatedAt: now.toISOString() }).where(eq(people.id, person.id)),
+        db.insert(auditEvents).values({ id: crypto.randomUUID(), actorId: person.id, action: lockedUntil ? "session.locked-out" : "session.failed-attempt", entityType: "person", entityId: person.id, afterJson: JSON.stringify({ attempt: failures }), createdAt: now.toISOString() }),
+      ]);
       return invalidCredentials(lockedUntil ? 429 : 401);
     }
 
@@ -37,7 +43,7 @@ export async function POST(request: Request) {
     await db.batch([
       db.update(people).set({ failedLoginCount: 0, lockedUntil: null, updatedAt: now.toISOString() }).where(eq(people.id, person.id)),
       db.insert(sessions).values({ id: sessionId, tokenHash, personId: person.id, expiresAt, userAgentHash }),
-      db.insert(auditEvents).values({ id: crypto.randomUUID(), actorId: person.id, action: "session.login", entityType: "session", entityId: sessionId }),
+      db.insert(auditEvents).values({ id: crypto.randomUUID(), actorId: person.id, action: "session.login", entityType: "session", entityId: sessionId, createdAt: new Date().toISOString() }),
     ]);
 
     return Response.json({

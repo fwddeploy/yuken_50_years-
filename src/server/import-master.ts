@@ -54,6 +54,28 @@ export async function previewMasterPayload(payload: MasterPayload): Promise<Mast
     const appRows = await database.prepare(`SELECT COUNT(*) AS count FROM ${definition.table} WHERE active=1 AND source_updated_at='app'`).first<{ count: number }>();
     appManagedProtected[definition.entity] = Number(appRows?.count ?? 0);
   }
+  // Losing an invitation destroys a reply the guest already gave and kills
+  // their RSVP link, and it happens from a single mistyped cell ("Yes -
+  // confirmed" is not "Yes"). Gaining core access hands somebody the budget
+  // and the Master Sheet. Neither removes a row, so neither was ever caught by
+  // the row-removal gate above — both now need the same core approval.
+  const incomingInvites = new Map<string, { malur: boolean; taj: boolean }>();
+  for (const row of guest?.guests ?? []) if (!row.removed) incomingInvites.set(row.recordId, { malur: row.malur, taj: row.taj });
+  const liveInvites = await database.prepare("SELECT guest_id AS guestId, event, invited FROM guest_event_invitations WHERE invited=1").all<{ guestId: string; event: "malur" | "taj"; invited: number }>();
+  const withdrawn: { id: string; label: string }[] = [];
+  const guestNames = new Map((await database.prepare("SELECT id, name FROM guests WHERE active=1").all<{ id: string; name: string }>()).results?.map(row => [row.id, row.name]) ?? []);
+  for (const row of liveInvites.results ?? []) {
+    const incoming = incomingInvites.get(row.guestId);
+    if (!incoming) continue;
+    if (!incoming[row.event]) withdrawn.push({ id: `${row.guestId}:${row.event}`, label: `${guestNames.get(row.guestId) ?? row.guestId} — ${row.event === "malur" ? "YIL Malur" : "Taj West End"}` });
+  }
+  if (withdrawn.length) impacts.push({ entity: "Guests no longer invited", count: withdrawn.length, sample: withdrawn.slice(0, 20) });
+
+  const incomingCore = new Set((payload.people ?? []).filter(row => !row.removed && row.isCore).map(row => row.recordId));
+  const promoted = ((await database.prepare("SELECT id, full_name AS label FROM people WHERE active=1 AND is_core=0").all<{ id: string; label: string }>()).results ?? [])
+    .filter(row => incomingCore.has(row.id));
+  if (promoted.length) impacts.push({ entity: "People gaining core committee access", count: promoted.length, sample: promoted.slice(0, 20) });
+
   const jobIds = archivedIds.get("jobs") ?? new Set<string>();
   const guestIds = archivedIds.get("guests") ?? new Set<string>();
   const [jobStateRows, invitationRows, stayRows, recipientRows, latestSync] = await Promise.all([
@@ -79,7 +101,7 @@ export async function previewMasterPayload(payload: MasterPayload): Promise<Mast
   };
 }
 
-export async function applyMasterPayload(payload: MasterPayload): Promise<ImportResult> {
+export async function applyMasterPayload(payload: MasterPayload, appliedBy?: string | null): Promise<ImportResult> {
   const validation = validateMasterPayload(payload);
   if (validation.issues.length) throw new MasterValidationError(validation.issues);
   const runtime = getRuntimeEnv();
@@ -155,7 +177,9 @@ export async function applyMasterPayload(payload: MasterPayload): Promise<Import
   for (const table of ["guest_categories", "guest_groups", "guests", "group_agenda_items", "travel_plans", "travel_stops", "hotels"]) statements.push(database.prepare(`UPDATE ${table} SET active=0, updated_at=? WHERE active=1 AND (source_updated_at IS NULL OR (source_updated_at<>'app' AND source_updated_at<>?))`).bind(now, batchId));
   statements.push(
     database.prepare("UPDATE travel_stops SET active=0, updated_at=? WHERE active=1 AND travel_plan_id IN (SELECT id FROM travel_plans WHERE active=0)").bind(now),
-    database.prepare("INSERT INTO audit_events (id, action, entity_type, entity_id, after_json, sync_batch_id, created_at) VALUES (?, 'master.sync-applied', 'sync_batch', ?, ?, ?, ?)").bind(crypto.randomUUID(), batchId, JSON.stringify({ people: activePeople.length, sections: activeSections.length, jobs: jobRows.length, guestRecords: guestApplied, sourceVersion: payload.sourceVersion }), batchId, now),
+    // The widest-reaching write in the system used to record no actor at all,
+    // so "who approved the apply that archived those guests" had no answer.
+    database.prepare("INSERT INTO audit_events (id, actor_id, action, entity_type, entity_id, after_json, sync_batch_id, created_at) VALUES (?, ?, 'master.sync-applied', 'sync_batch', ?, ?, ?, ?)").bind(crypto.randomUUID(), appliedBy ?? null, batchId, JSON.stringify({ people: activePeople.length, sections: activeSections.length, jobs: jobRows.length, guestRecords: guestApplied, sourceVersion: payload.sourceVersion, appliedBy: appliedBy ?? "automatic sync" }), batchId, now),
   );
   const applied = activePeople.length + activeSections.length + jobRows.length + guestApplied;
   statements.push(database.prepare("UPDATE sync_batches SET status='applied', applied_count=?, rejected_count=0, summary=?, completed_at=? WHERE id=?").bind(applied, `${activePeople.length} people, ${activeSections.length} sections, ${jobRows.length} operational jobs and ${guestApplied} guest records applied`, now, batchId));

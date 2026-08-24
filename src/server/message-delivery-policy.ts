@@ -1,7 +1,13 @@
 import type { RuntimeEnv } from "./runtime-env";
 
+/** A bare ten-digit number is an Indian mobile and gets 91. A number written
+ *  with a leading + already carries its own country code — the Japan and
+ *  Europe guests depend on that being left alone, because prepending 91 to a
+ *  ten-digit overseas number dials a different country entirely. */
 export function normalizeWhatsAppNumber(value: string) {
-  const digits = value.replace(/\D/gu, "");
+  const trimmed = value.trim();
+  const digits = trimmed.replace(/\D/gu, "");
+  if (trimmed.startsWith("+")) return digits;
   if (digits.length === 10) return `91${digits}`;
   return digits;
 }

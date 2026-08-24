@@ -1,7 +1,6 @@
 import { and, eq, inArray } from "drizzle-orm";
 import { getDb } from "../../../../../db";
 import { guestCategories, travelPlanCategories, travelPlans, travelStops } from "../../../../../db/schema";
-import { mayManageTravelCategories } from "../../../../../src/server/permissions";
 import { authenticateRequest } from "../../../../../src/server/session";
 import { getRuntimeEnv } from "../../../../../src/server/runtime-env";
 import { flushGoogleSheetOutbox, queueSheetSyncStatement } from "../../../../../src/server/google-sheets";
@@ -32,13 +31,12 @@ export async function PUT(request: Request, context: { params: Promise<{ id: str
     db.select({ id: travelStops.id, travelPlanId: travelStops.travelPlanId }).from(travelStops).where(inArray(travelStops.id, stops.map(stop => stop.id))),
   ]);
   if (categories.length !== categoryIds.length) return Response.json({ error: "One or more selected categories are no longer available." }, { status: 409 });
-  // A plan reaches every guest in its categories, so a non-core coordinator may
-  // only build one that stays inside the groups they look after. Editing an
-  // existing plan is measured against BOTH its current and its new categories,
-  // so a plan serving other people's guests cannot be taken over.
-  const currentCategoryIds = beforeCategories.map(row => row.categoryId);
-  if (!await mayManageTravelCategories(user, [...new Set([...categoryIds, ...currentCategoryIds])])) {
-    return Response.json({ error: "This travel plan carries guests outside your groups, so only the core committee can change it." }, { status: 403 });
+  // Vehicles are arranged by the transport team, who are on the core
+  // committee — not by whichever guest coordinator happens to look after the
+  // people riding the bus. Coordinators still see every plan and send their
+  // own guests the details; they just do not build or change routes.
+  if (!user.isCore) {
+    return Response.json({ error: "Travel is arranged by the transport team. You can see this plan and send it to your guests, but only the core committee can change it." }, { status: 403 });
   }
   if (submittedStops.some(stop => stop.travelPlanId !== id)) return Response.json({ error: "One or more travel stops belong to another plan. Refresh and try again." }, { status: 409 });
   const sameDayPlans = await db.select({ planId: travelPlans.id, categoryId: travelPlanCategories.categoryId }).from(travelPlanCategories).innerJoin(travelPlans, eq(travelPlans.id, travelPlanCategories.travelPlanId)).where(and(eq(travelPlans.event, event), eq(travelPlans.travelDate, date), eq(travelPlans.active, true), inArray(travelPlanCategories.categoryId, categoryIds)));

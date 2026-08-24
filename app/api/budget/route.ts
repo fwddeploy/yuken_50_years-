@@ -33,7 +33,7 @@ export async function POST(request: Request) {
   const db = getDb();
   await db.batch([
     db.insert(budgetEntries).values(entry),
-    db.insert(auditEvents).values({ id: crypto.randomUUID(), actorId: user.personId, action: "budget.created", entityType: "budget_entry", entityId: id, afterJson: JSON.stringify(entry) }),
+    db.insert(auditEvents).values({ id: crypto.randomUUID(), actorId: user.personId, action: "budget.created", entityType: "budget_entry", entityId: id, afterJson: JSON.stringify(entry), createdAt: new Date().toISOString() }),
   ]);
   return Response.json({ entry }, { status: 201, headers: { "Cache-Control": "no-store" } });
 }
@@ -56,7 +56,7 @@ export async function PATCH(request: Request) {
   const now = new Date().toISOString();
   await db.batch([
     db.update(budgetEntries).set({ ...checked.fields, updatedAt: now }).where(eq(budgetEntries.id, id)),
-    db.insert(auditEvents).values({ id: crypto.randomUUID(), actorId: user.personId, action: "budget.updated", entityType: "budget_entry", entityId: id, beforeJson: JSON.stringify(before), afterJson: JSON.stringify({ id, ...checked.fields }), createdAt: now }),
+    db.insert(auditEvents).values({ id: crypto.randomUUID(), actorId: user.personId, action: "budget.updated", entityType: "budget_entry", entityId: id, beforeJson: JSON.stringify(before), afterJson: JSON.stringify({ id, ...checked.fields, createdAt: new Date().toISOString() }), createdAt: now }),
   ]);
   return Response.json({ entry: { ...before, ...checked.fields } }, { headers: { "Cache-Control": "no-store" } });
 }

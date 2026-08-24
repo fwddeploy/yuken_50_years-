@@ -16,7 +16,8 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
-  if (!await requireCore(request)) return Response.json({ error: "Core committee access is required." }, { status: 403 });
+  const user = await requireCore(request);
+  if (!user) return Response.json({ error: "Core committee access is required." }, { status: 403 });
   const body = await request.json() as { action?: "push" | "pull-preview" | "pull-apply"; confirmationToken?: string };
   try {
     if (body.action === "push") return Response.json({ ...(await flushGoogleSheetOutbox(100)), ...(await getGoogleSheetsStatus()) }, { headers: { "Cache-Control": "no-store" } });
@@ -25,7 +26,7 @@ export async function POST(request: Request) {
     if (body.action === "pull-preview") return Response.json({ status: "Ready for confirmation", preview }, { headers: { "Cache-Control": "no-store" } });
     if (body.action === "pull-apply") {
       if (!constantTimeEqual(body.confirmationToken ?? "", preview.confirmationToken)) return Response.json({ error: "The Sheet changed after preview. Check it again before applying.", preview }, { status: 409 });
-      const result = await applyMasterPayload(master);
+      const result = await applyMasterPayload(master, user.personId);
       await baselineGoogleSheetsMaster();
       await recordManualApply(master, result.applied).catch(() => undefined);
       return Response.json({ status: "Changes applied", ...result, archived: preview.impacts.reduce((sum, item) => sum + item.count, 0) }, { headers: { "Cache-Control": "no-store" } });

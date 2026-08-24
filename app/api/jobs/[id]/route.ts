@@ -62,7 +62,7 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
     return { id: attachmentId, updateId: updateId!, objectKey: `job-updates/${now.slice(0, 7)}/${attachmentId}.${details.extension}`, fileName: safeMediaFileName(file.name), contentType: file.type, sizeBytes: file.size, uploadedBy: user.personId, createdAt: now, file };
   });
   const auditAfter = { ...after, updateId, attachmentIds: attachmentRows.map(row => row.id) };
-  const auditWrite = db.insert(auditEvents).values({ id: crypto.randomUUID(), actorId: user.personId, action: "job.progress-updated", entityType: "job", entityId: id, beforeJson: JSON.stringify(before ?? null), afterJson: JSON.stringify(auditAfter) });
+  const auditWrite = db.insert(auditEvents).values({ id: crypto.randomUUID(), actorId: user.personId, action: "job.progress-updated", entityType: "job", entityId: id, beforeJson: JSON.stringify(before ?? null), afterJson: JSON.stringify(auditAfter), createdAt: new Date().toISOString() });
   const bucket = files.length ? getMediaBucket() : null;
   const uploadedKeys: string[] = [];
   try {

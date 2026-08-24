@@ -34,12 +34,22 @@ test("assigning or clearing a hotel is limited to the coordinator's own groups",
   }
 });
 
-test("a travel plan is checked against both its current and its new categories", async () => {
+test("travel plans are arranged by the transport team, not by guest coordinators", async () => {
   const source = await read("app/api/guest/travel/[id]/route.ts");
-  // Checking only the submitted categories would let somebody narrow a shared
-  // plan down to their own category and thereby take it over.
-  assert.match(source, /mayManageTravelCategories\(user, \[\.\.\.new Set\(\[\.\.\.categoryIds, \.\.\.currentCategoryIds\]\)\]\)/);
+  // Vehicles are the transport team's job and they are on the core committee.
+  // A coordinator still sees every plan and sends it to their own guests.
+  assert.match(source, /if \(!user\.isCore\) \{/);
+  assert.match(source, /Travel is arranged by the transport team/);
   assert.match(source, /status: 403/);
+});
+
+test("the app never offers a travel control it will refuse", async () => {
+  const ui = await read("app/GuestCoordinationApp.tsx");
+  // Walking somebody through a whole form and then refusing the save is the
+  // failure this guards against.
+  assert.match(ui, /\{user\.isCore && <button className="secondaryAction addGuestAction" onClick=\{addPlan\}>/);
+  assert.match(ui, /user\.isCore \? <button className="secondaryAction" onClick=\{\(\) => setSelected\(plan\)\}>Edit route<\/button>/);
+  assert.match(ui, /user\.isCore \? <button className="secondaryAction mineAddLine" onClick=\{addTravel\}>/);
 });
 
 test("the ownership helpers fail closed", async () => {
@@ -47,11 +57,9 @@ test("the ownership helpers fail closed", async () => {
   // A guest with no group cannot belong to anybody's groups, and a person who
   // coordinates nothing must never pass a travel check.
   assert.match(source, /if \(!guest\?\.groupId\) return false/);
-  assert.match(source, /if \(!categoryIds\.length\) return false/);
-  assert.match(source, /if \(!mine\.size\) return false/);
   // Core keeps full access on every path.
   const coreShortcuts = source.match(/if \(user\.isCore\) return true/gu) ?? [];
-  assert.ok(coreShortcuts.length >= 3, "core must retain access on each helper");
+  assert.ok(coreShortcuts.length >= 2, "core must retain access on each helper");
   // Only active groups count, so an archived group grants nothing.
   assert.match(source, /from\(guestGroups\)\.where\(eq\(guestGroups\.active, true\)\)/);
 });
