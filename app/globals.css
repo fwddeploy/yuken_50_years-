@@ -342,3 +342,34 @@
 .overviewActivity span{color:var(--ink);font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .overviewActivity small{color:var(--muted);font-size:11px;white-space:nowrap}
 @media(max-width:380px){.overviewNumbers,.overviewGaps{grid-template-columns:repeat(2,1fr)}.overviewActivity article{grid-template-columns:1fr;gap:2px}.overviewActivity b{max-width:none}}
+
+/* The genuine rendered message, shown before anything is sent. */
+.realMessage{display:grid;gap:7px;border:1px solid var(--gold-500);border-radius:14px;padding:13px;background:#fdfaf1;margin:10px 0}
+.realMessage>header{display:flex;justify-content:space-between;align-items:baseline;gap:8px}
+.realMessage>header b{color:var(--navy-900);font-size:13px}
+.realMessage>header span{color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.08em;font-weight:850}
+.realMessage strong{color:var(--navy-900);font-size:13px}
+.realMessage pre{margin:0;white-space:pre-wrap;word-break:break-word;font:13px/1.5 inherit;color:var(--ink)}
+
+/* Motion. A sheet slides up from the edge it is anchored to and the shade
+   fades with it, so a screen reads as arriving rather than blinking into
+   place. Kept short — 180-220ms — because coordinators tap these dozens of
+   times an hour and anything slower starts to feel like waiting. */
+@keyframes yilSheetIn{from{transform:translateY(14px);opacity:.4}to{transform:translateY(0);opacity:1}}
+@keyframes yilShadeIn{from{opacity:0}to{opacity:1}}
+@keyframes yilRise{from{transform:translateY(6px);opacity:0}to{transform:translateY(0);opacity:1}}
+.sheetLayer>.jobSheet,.sheetLayer>.guestSheet,.sheetLayer>.rsvpCard{animation:yilSheetIn 200ms cubic-bezier(.2,.7,.3,1) both}
+.sheetShade{animation:yilShadeIn 180ms ease both}
+.eventBody>*,.guestBody>*{animation:yilRise 180ms ease both}
+.toast{animation:yilRise 160ms ease both}
+.jobRow,.guestRow,.budgetRowTap,.pinList article,.travelCard,.mineLineList article,.overviewActivity article{transition:background-color 140ms ease,box-shadow 140ms ease,transform 140ms ease}
+.jobRow:active,.guestRow:active,.budgetRowTap:active,.travelCard:active{transform:scale(.995)}
+.primaryAction,.secondaryAction,.smallAction,.dangerAction{transition:transform 120ms ease,opacity 120ms ease,background-color 140ms ease}
+.primaryAction:active,.secondaryAction:active,.smallAction:active,.dangerAction:active{transform:scale(.98)}
+.eventTabs button,.guestTabs button,.venueSegments button,.mineSegments button,.eventSwitch button{transition:color 140ms ease,background-color 140ms ease,border-color 140ms ease}
+.overviewBar>div>i{transition:width 420ms cubic-bezier(.2,.7,.3,1)}
+/* Anybody who has asked their phone to calm down gets no movement at all. */
+@media(prefers-reduced-motion:reduce){
+  .sheetLayer>.jobSheet,.sheetLayer>.guestSheet,.sheetLayer>.rsvpCard,.sheetShade,.eventBody>*,.guestBody>*,.toast{animation:none!important}
+  .jobRow:active,.guestRow:active,.budgetRowTap:active,.travelCard:active,.primaryAction:active,.secondaryAction:active,.smallAction:active,.dangerAction:active{transform:none!important}
+}

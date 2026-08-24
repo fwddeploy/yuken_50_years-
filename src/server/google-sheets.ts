@@ -42,7 +42,7 @@ export function googleSheetsConfigured() {
 export async function getGoogleSheetsStatus() {
   const database = getRuntimeEnv().DB;
   const [pending, failed, delivered] = await Promise.all([
-    database.prepare("SELECT COUNT(*) AS count FROM sheet_sync_outbox WHERE status='pending'").first<{ count: number }>(),
+    database.prepare("SELECT COUNT(*) AS count FROM sheet_sync_outbox WHERE status IN ('pending','sending')").first<{ count: number }>(),
     database.prepare("SELECT COUNT(*) AS count FROM sheet_sync_outbox WHERE status='failed'").first<{ count: number }>(),
     database.prepare("SELECT COUNT(*) AS count FROM sheet_sync_outbox WHERE status='delivered'").first<{ count: number }>(),
   ]);
@@ -64,12 +64,28 @@ export async function flushGoogleSheetOutbox(limit = 25) {
     return { configured: true, attempted: 0, delivered: 0, heldForMasterReview: true };
   }
   const now = new Date().toISOString();
+  // Two flushes running at once (a save and the snapshot's background flush,
+  // say) could each pick up a different edit of the same record and deliver
+  // them in either order, so the OLDER payload could land last and revert the
+  // newer one in the Sheet. Rows are claimed before sending, so a record can
+  // only be in flight once, and the newest queued payload is the one that wins.
+  const claimId = crypto.randomUUID();
+  const claimCutoff = new Date(Date.now() - 2 * 60_000).toISOString();
+  await runtime.DB.prepare(`
+    UPDATE sheet_sync_outbox SET status='sending', last_error=?, updated_at=updated_at
+    WHERE id IN (
+      SELECT id FROM sheet_sync_outbox
+      WHERE (status IN ('pending','failed') OR (status='sending' AND updated_at <= ?))
+        AND (next_attempt_at IS NULL OR next_attempt_at<=?)
+      ORDER BY updated_at LIMIT ?
+    )
+  `).bind(claimId, claimCutoff, now, Math.max(1, Math.min(limit, 100))).run();
   const rows = await runtime.DB.prepare(`
     SELECT id, entity_type AS entityType, entity_id AS entityId, operation, payload_json AS payloadJson, updated_at AS updatedAt, attempts
     FROM sheet_sync_outbox
-    WHERE status IN ('pending','failed') AND (next_attempt_at IS NULL OR next_attempt_at<=?)
-    ORDER BY updated_at LIMIT ?
-  `).bind(now, Math.max(1, Math.min(limit, 100))).all<{ id: string; entityType: SheetEntityType; entityId: string; operation: SheetOperation; payloadJson: string; updatedAt: string; attempts: number }>();
+    WHERE status='sending' AND last_error=?
+    ORDER BY updated_at
+  `).bind(claimId).all<{ id: string; entityType: SheetEntityType; entityId: string; operation: SheetOperation; payloadJson: string; updatedAt: string; attempts: number }>();
   const selected = rows.results ?? [];
   if (!selected.length) return { configured: true, attempted: 0, delivered: 0 };
   const writes: SheetSyncWrite[] = selected.map(row => ({ id: row.id, entityType: row.entityType, entityId: row.entityId, operation: row.operation, payload: JSON.parse(row.payloadJson), updatedAt: row.updatedAt }));

@@ -88,7 +88,9 @@ export async function POST(request: Request) {
       guest_name: guest.name,
       event_name: event?.name,
       event_date: event ? formatDate(event.date) : undefined,
-      rsvp_link: body.purpose === "invitation" ? "generated securely when the batch is sent" : undefined,
+      // A neutral marker rather than an English sentence: this sits inside the
+      // guest's own language in the review, and the real link replaces it at send.
+      rsvp_link: body.purpose === "invitation" ? "[ personal RSVP link ]" : undefined,
       agenda_date: body.agendaDate ? formatDate(body.agendaDate) : undefined,
       agenda_lines: agendaLines || undefined,
       travel_date: plan ? formatDate(plan.travelDate) : undefined,
@@ -135,7 +137,13 @@ export async function POST(request: Request) {
       });
     }),
   ]);
-  return Response.json({ batchId, total, ready: readyTotal, skipped: skippedTotal, notSent: items.filter(item => item.status === "skipped").map(item => ({ guestId: item.guestId, guestName: item.guestName, reason: item.reason, missing: item.missing ?? [] })) }, { headers: { "Cache-Control": "no-store" } });
+  // The screen used to show a preview built in the browser that shared no
+  // wording with the approved template, so coordinators reviewed and sent text
+  // no guest ever received. The real rendered message for the first ready
+  // recipient now travels back, so the review shows the actual words.
+  const firstReady = result.items.find(item => item.status === "ready");
+  const sample = firstReady ? { guestName: firstReady.guestName, subject: firstReady.subject ?? null, body: firstReady.body ?? "" } : null;
+  return Response.json({ batchId, total, ready: readyTotal, skipped: skippedTotal, sample, notSent: items.filter(item => item.status === "skipped").map(item => ({ guestId: item.guestId, guestName: item.guestName, reason: item.reason, missing: item.missing ?? [] })) }, { headers: { "Cache-Control": "no-store" } });
 }
 
 const isPurpose = (value: unknown): value is MessagePurpose => value === "invitation" || value === "agenda" || value === "travel" || value === "stay";
