@@ -57,7 +57,9 @@ export async function runAutoSync(trigger: "cron" | "manual"): Promise<AutoSyncR
     }
     const { payload, waiting, blockingIssues } = filterNewIncompleteRows(raw, await loadExistingIds(database));
     if (blockingIssues.length) {
-      const lines = blockingIssues.slice(0, 12).map(issue => `${issue.sheet}: ${issue.message}`);
+      // The row identifier is what makes an issue actionable — the editor can
+      // search the permanent ID column for it. Never report a bare message.
+      const lines = blockingIssues.slice(0, 12).map(issue => `${issue.sheet}${issue.recordId && issue.recordId !== "row" ? ` · ${issue.recordId}` : ""}: ${issue.message}`);
       return await finish(database, runId, { outcome: "needs-fixing", summary: `Nothing was changed. ${blockingIssues.length} problem${blockingIssues.length === 1 ? "" : "s"} in the sheet need fixing first.`, waiting }, contentHash, { issues: lines });
     }
     const preview = await previewMasterPayload(payload);
@@ -102,7 +104,10 @@ export async function getAutoSyncStatus() {
   // The actionable state is queried directly, NOT derived from the recent-runs
   // window — a long stretch of 'unstable' runs must not scroll a pending
   // approval out of the banner.
-  const latestActionable = await database.prepare("SELECT outcome, summary, started_at AS startedAt, waiting_count AS waitingCount FROM sync_runs WHERE outcome IN ('applied','awaiting-approval','needs-fixing','no-change') ORDER BY started_at DESC LIMIT 1").first<{ outcome: AutoSyncOutcome; summary: string | null; startedAt: string; waitingCount: number | null }>();
+  const latestActionable = await database.prepare("SELECT outcome, summary, started_at AS startedAt, waiting_count AS waitingCount, detail_json AS detailJson FROM sync_runs WHERE outcome IN ('applied','awaiting-approval','needs-fixing','no-change') ORDER BY started_at DESC LIMIT 1").first<{ outcome: AutoSyncOutcome; summary: string | null; startedAt: string; waitingCount: number | null; detailJson: string | null }>();
+  // "2 problems need fixing" is useless without the problems themselves — the
+  // exact lines are carried through so the sync screen can list them.
+  const detail = safeParse(latestActionable?.detailJson ?? null) as { issues?: string[]; impacts?: { entity: string; count: number }[] } | null;
   const rows = await database.prepare("SELECT started_at AS startedAt, outcome, summary, waiting_count AS waitingCount FROM sync_runs WHERE outcome<>'running' ORDER BY started_at DESC LIMIT 10").all<{ startedAt: string; outcome: AutoSyncOutcome; summary: string | null; waitingCount: number }>();
   return {
     pendingApproval: latestActionable?.outcome === "awaiting-approval",
@@ -110,6 +115,8 @@ export async function getAutoSyncStatus() {
     latestSummary: latestActionable?.summary ?? null,
     latestAt: latestActionable?.startedAt ?? null,
     waitingCount: Number(latestActionable?.waitingCount ?? 0),
+    issues: latestActionable?.outcome === "needs-fixing" ? detail?.issues ?? [] : [],
+    impacts: latestActionable?.outcome === "awaiting-approval" ? detail?.impacts ?? [] : [],
     runs: (rows.results ?? []).map(run => ({ startedAt: run.startedAt, outcome: run.outcome, summary: run.summary, waitingCount: run.waitingCount })),
   };
 }

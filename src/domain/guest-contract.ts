@@ -108,14 +108,14 @@ export function validateGuestMaster(payload: GuestMasterPayload, peopleInitials:
     else if (guestIds.has(id)) addIssue(issues, GUEST_MASTER_SHEETS.guests, id, "recordId", "Permanent record ID is duplicated.");
     else guestIds.add(id);
     if (!clean(guest.name)) addIssue(issues, GUEST_MASTER_SHEETS.guests, id, "name", "Guest name is required.");
-    if (!categories.has(keyOf(guest.categoryName))) addIssue(issues, GUEST_MASTER_SHEETS.guests, id, "categoryName", "The selected category does not exist in 4 Guest Categories.");
-    if (clean(guest.groupName) && !groups.has(keyOf(guest.groupName))) addIssue(issues, GUEST_MASTER_SHEETS.guests, id, "groupName", "The selected group does not exist in 5 Guest Groups.");
+    if (!categories.has(keyOf(guest.categoryName))) addIssue(issues, GUEST_MASTER_SHEETS.guests, id, "categoryName", `"${clean(guest.categoryName) || "(blank)"}" is not one of the categories in 4 Guest Categories.`);
+    if (clean(guest.groupName) && !groups.has(keyOf(guest.groupName))) addIssue(issues, GUEST_MASTER_SHEETS.guests, id, "groupName", `"${clean(guest.groupName)}" is not one of the groups in 5 Guest Groups.`);
     if (!parseGuestLanguage(guest.preferredLanguage)) addIssue(issues, GUEST_MASTER_SHEETS.guests, id, "preferredLanguage", "Language must be English, German or Japanese.");
     if (!guest.malur && !guest.taj) addIssue(issues, GUEST_MASTER_SHEETS.guests, id, "events", "Select Malur, Taj or both.");
   }
 
   for (const item of payload.agenda.filter(row => !row.removed)) {
-    if (!groups.has(keyOf(item.groupName))) addIssue(issues, GUEST_MASTER_SHEETS.agenda, item.recordId, "groupName", "The selected group does not exist in 5 Guest Groups.");
+    if (!groups.has(keyOf(item.groupName))) addIssue(issues, GUEST_MASTER_SHEETS.agenda, item.recordId, "groupName", `"${clean(item.groupName) || "(blank)"}" is not one of the groups in 5 Guest Groups.`);
     if (!isIsoDate(item.date)) addIssue(issues, GUEST_MASTER_SHEETS.agenda, item.recordId, "date", "Use a date in YYYY-MM-DD format.");
     if (!/^([01]\d|2[0-3]):[0-5]\d$/u.test(normalizeMasterTime(item.time))) addIssue(issues, GUEST_MASTER_SHEETS.agenda, item.recordId, "time", "Use a 24-hour time in HH:MM format.");
     if (!clean(item.title)) addIssue(issues, GUEST_MASTER_SHEETS.agenda, item.recordId, "title", "Agenda title is required.");
@@ -140,7 +140,7 @@ export function validateGuestMaster(payload: GuestMasterPayload, peopleInitials:
   const seenStopOrder = new Set<string>();
   for (const stop of payload.travelStops.filter(row => !row.removed)) {
     const planKey = keyOf(stop.travelPlanName);
-    if (!plans.has(planKey)) addIssue(issues, GUEST_MASTER_SHEETS.travelStops, stop.recordId, "travelPlanName", "The selected travel plan does not exist in 8 Travel Plans.");
+    if (!plans.has(planKey)) addIssue(issues, GUEST_MASTER_SHEETS.travelStops, stop.recordId, "travelPlanName", `"${clean(stop.travelPlanName) || "(blank)"}" is not one of the plans in 8 Travel Plans.`);
     if (!Number.isInteger(stop.order) || stop.order < 1) addIssue(issues, GUEST_MASTER_SHEETS.travelStops, stop.recordId, "order", "Stop order must be a positive whole number.");
     const orderKey = `${planKey}:${stop.order}`;
     if (seenStopOrder.has(orderKey)) addIssue(issues, GUEST_MASTER_SHEETS.travelStops, stop.recordId, "order", "Stop order is duplicated for this travel plan.");

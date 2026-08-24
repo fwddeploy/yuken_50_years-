@@ -22,6 +22,12 @@ const guestTabs: { id: GuestTab; icon: string; label: string }[] = [
 
 const emptySnapshot: GuestSnapshot = { guests: [], categories: [], groups: [], travelPlans: [], hotels: [] };
 
+/** The real guest list is ~1,855 people. Rendering every match would put over
+ *  11,000 nodes on the page on first paint, so long lists are capped and the
+ *  coordinator narrows with search or filters — the same pattern Stays uses.
+ *  Counts, metrics and send audiences are never capped. */
+const GUEST_LIST_LIMIT = 60;
+
 export default function GuestCoordinationApp({ user, team, back, signOut, openSyncOnMount, consumeSyncIntent }: { user: EventUser; team: EventTeamMember[]; back: () => void; signOut: () => void; openSyncOnMount?: boolean; consumeSyncIntent?: () => void }) {
   const preview = user.id === previewUser.id;
   const [tab, setTab] = useState<GuestTab>("mine");
@@ -331,7 +337,9 @@ function InvitationsView({ user, preview, snapshot, send, notify }: { user: Even
     {user.isCore && <div className="templateAccessBar"><span><b>What goes under the card</b><small>English, German and Japanese wording — fixed templates</small></span><button className="secondaryAction" onClick={() => setTemplatesOpen(true)}>Review templates</button></div>}
     <section className="guestToolbar"><SearchBox value={query} change={setQuery} placeholder="Search guest or company" /><div className="pickerRow"><FilterPicker label="Reply" value={status} change={setStatus} options={[{ id: "all", name: "All replies" }, { id: "not-invited", name: "Not sent yet" }, { id: "sent", name: "Card sent" }, { id: "pending", name: "Awaiting reply" }, { id: "replied", name: "Replied" }, { id: "accepted", name: "Attending" }, { id: "declined", name: "Unable to attend" }]} /><FilterPicker label="Category" value={category} change={setCategory} options={[{ id: "all", name: "All categories" }, ...snapshot.categories.map(item => ({ id: item.id, name: item.name }))]} /></div><button className="primaryAction sendAllAction" disabled={!sendable.length} onClick={() => send({ title: `${event === "malur" ? "Malur" : "Taj"} invitation`, purpose: "invitation", guests: sendable, event })}>{user.isCore ? "Send to all" : "Send to yours"} <span>{sendable.length}</span></button></section>
     <div className="resultSummary"><b>{filtered.length}</b> guests match these filters{!user.isCore && <> · <b>{sendable.length}</b> of them are yours to send</>}</div>
-    <div className="guestList">{filtered.map(guest => <GuestListRow key={guest.id} guest={guest} event={event} />)}</div>{templatesOpen && <TemplateSheet preview={preview} close={() => setTemplatesOpen(false)} notify={notify} />}
+    <div className="guestList">{filtered.slice(0, GUEST_LIST_LIMIT).map(guest => <GuestListRow key={guest.id} guest={guest} event={event} />)}</div>
+    {filtered.length > GUEST_LIST_LIMIT && <p className="mineAllNote">Showing the first {GUEST_LIST_LIMIT} of {filtered.length}. Use the search box or the filters above to narrow the list — the counts and the send button still cover everyone who matches.</p>}
+    {templatesOpen && <TemplateSheet preview={preview} close={() => setTemplatesOpen(false)} notify={notify} />}
     {cardPreview && <RsvpPreviewLayer name={invited[0]?.name ?? "guest"} event={event} close={() => setCardPreview(false)} />}
   </>;
 }
@@ -348,7 +356,8 @@ function GuestsView({ snapshot, save, archive }: { snapshot: GuestSnapshot; save
     <EventSwitch event={event} change={setEvent} />
     <section className="guestToolbar"><SearchBox value={query} change={setQuery} placeholder="Search by name or company" /><div className="pickerRow"><FilterPicker label="Category" value={category} change={setCategory} options={[{ id: "all", name: "All categories" }, ...snapshot.categories.map(item => ({ id: item.id, name: item.name }))]} /><FilterPicker label="Language" value={language} change={setLanguage} options={[{ id: "all", name: "All languages" }, { id: "english", name: "English" }, { id: "german", name: "German" }, { id: "japanese", name: "Japanese" }]} /></div><button className="secondaryAction addGuestAction" onClick={() => setSelected("new")}>＋ Add guest</button></section>
     <div className="resultSummary"><b>{filtered.length}</b> guests · contact details stay inside the guest record</div>
-    <div className="guestList">{filtered.map(guest => <button className="guestRow" key={guest.id} onClick={() => setSelected(guest)}><GuestIdentity guest={guest} /><span className="languagePill">{languageName(guest.preferredLanguage)}</span><i>›</i></button>)}</div>
+    <div className="guestList">{filtered.slice(0, GUEST_LIST_LIMIT).map(guest => <button className="guestRow" key={guest.id} onClick={() => setSelected(guest)}><GuestIdentity guest={guest} /><span className="languagePill">{languageName(guest.preferredLanguage)}</span><i>›</i></button>)}</div>
+    {filtered.length > GUEST_LIST_LIMIT && <p className="mineAllNote">Showing the first {GUEST_LIST_LIMIT} of {filtered.length}. Search a name or company, or use the filters, to narrow the list.</p>}
     {selected && <GuestEditSheet guest={selected === "new" ? undefined : selected} event={event} snapshot={snapshot} close={() => setSelected(null)} save={async (guest, rsvps) => { if (await save(guest, rsvps)) setSelected(null); }} archive={async id => { if (await archive(id)) setSelected(null); }} />}
   </>;
 }
@@ -571,6 +580,7 @@ type SheetSyncPreview = { confirmationToken: string; sourceVersion: string; impa
 function GoogleSheetsSyncSheet({ close, notify }: { close: () => void; notify: (message: string) => void }) {
   const [status, setStatus] = useState<SheetSyncStatus | null>(null);
   const [preview, setPreview] = useState<SheetSyncPreview | null>(null);
+  const [autoStatus, setAutoStatus] = useState<{ needsFixing: boolean; latestSummary: string | null; issues: string[]; waitingCount: number } | null>(null);
   const [busy, setBusy] = useState(false);
   async function request(action?: "push" | "pull-preview" | "pull-apply") {
     setBusy(true);
@@ -592,10 +602,16 @@ function GoogleSheetsSyncSheet({ close, notify }: { close: () => void; notify: (
       if (!response.ok) throw new Error(payload.error || "Master Sheet status could not be loaded.");
       if (active) setStatus(payload);
     }).catch(error => { if (active) notify(error instanceof Error ? error.message : "Master Sheet status could not be loaded."); });
+    fetch("/api/master/sync-status", { cache: "no-store" }).then(async response => {
+      const payload = await response.json() as { needsFixing?: boolean; latestSummary?: string | null; issues?: string[]; waitingCount?: number };
+      if (active && response.ok) setAutoStatus({ needsFixing: Boolean(payload.needsFixing), latestSummary: payload.latestSummary ?? null, issues: payload.issues ?? [], waitingCount: payload.waitingCount ?? 0 });
+    }).catch(() => undefined);
     return () => { active = false; };
   }, [notify]);
   const removalCount = preview?.impacts.reduce((sum, item) => sum + item.count, 0) ?? 0;
   return <Sheet title="Sync Master Sheet" subtitle="Core committee" close={close}>
+    {autoStatus?.needsFixing && autoStatus.issues.length > 0 && <div className="preflightPanel"><div><span className="skipCount"><b>{autoStatus.issues.length}</b> {autoStatus.issues.length === 1 ? "row needs fixing" : "rows need fixing"} in the Sheet</span></div><p className="mineAllNote">Search the permanent record ID in that tab to find each row. Automatic sync resumes on its own once these are corrected.</p><ul>{autoStatus.issues.map((issue, index) => <li key={index}><span>{issue}</span></li>)}</ul></div>}
+    {autoStatus && autoStatus.waitingCount > 0 && <div className="plainRule"><b>{autoStatus.waitingCount} new {autoStatus.waitingCount === 1 ? "row is" : "rows are"} waiting</b><span>They are half-filled in the Sheet and will arrive automatically once completed.</span></div>}
     {!status ? <div className="quietState"><b>Checking connection…</b></div> : !status.configured ? <div className="inlineWarning"><b>Google Sheets is not connected</b><span>Add the web-app URL and shared secret in the private hosting environment.</span></div> : <>
       <div className="sendSummary"><b>{status.pending + status.failed}</b><span>app changes waiting to reach the Sheet</span></div>
       <div className="languageBreakdown"><span><b>{status.delivered}</b> delivered</span><span><b>{status.failed}</b> need retry</span></div>
@@ -620,10 +636,16 @@ function GuestEditSheet({ guest, event, snapshot, close, save, archive }: { gues
     const form = new FormData(formEvent.currentTarget);
     const categoryId = String(form.get("categoryId"));
     const groupId = String(form.get("groupId"));
-    const current = guest ?? { id: crypto.randomUUID(), invitations: [{ event: "malur" as const, invited: false, rsvpStatus: "not-invited" as const }, { event: "taj" as const, invited: false, rsvpStatus: "not-invited" as const }] };
-    const invitations = current.invitations.map(item => invitedEvents.has(item.event)
-      ? { ...item, invited: true, rsvpStatus: item.rsvpStatus === "not-invited" ? "pending" as const : item.rsvpStatus }
-      : { ...item, invited: false, rsvpStatus: "not-invited" as const });
+    const current = guest ?? { id: crypto.randomUUID(), invitations: [] };
+    // Built over BOTH events, not by mapping existing rows — an app-created
+    // guest starts with rows only for its chosen events, and a tick for the
+    // other evening must still reach the server.
+    const invitations = (["malur", "taj"] as const).map(eventKey => {
+      const existing = current.invitations.find(item => item.event === eventKey);
+      return invitedEvents.has(eventKey)
+        ? { event: eventKey, invited: true, rsvpStatus: existing && existing.rsvpStatus !== "not-invited" ? existing.rsvpStatus : "pending" as const }
+        : { event: eventKey, invited: false, rsvpStatus: "not-invited" as const };
+    });
     const rsvps = (Object.entries(rsvpChoices) as [GuestEvent, string][]).filter(([rsvpEvent, status]) => invitedEvents.has(rsvpEvent) && status).map(([rsvpEvent, status]) => ({ event: rsvpEvent, status }));
     save({ ...current, name: String(form.get("name") || "").trim(), company: String(form.get("company") || "").trim(), categoryId, categoryName: snapshot.categories.find(item => item.id === categoryId)?.name ?? "", groupId: groupId || undefined, groupName: snapshot.groups.find(item => item.id === groupId)?.name, country: String(form.get("country") || "India").trim(), preferredLanguage: String(form.get("preferredLanguage")) as GuestRecord["preferredLanguage"], phone: String(form.get("phone") || "").trim() || undefined, email: String(form.get("email") || "").trim() || undefined, invitations } as GuestRecord, rsvps.length ? rsvps : undefined);
   }
