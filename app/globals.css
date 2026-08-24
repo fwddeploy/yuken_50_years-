@@ -310,3 +310,35 @@
 .updateEditRow>div{display:grid;grid-template-columns:1fr auto;gap:8px}
 .updateEditRow .primaryAction,.updateEditRow .secondaryAction{min-height:44px;font-size:12px}
 .finishByInput{min-height:44px;border:1px solid var(--line);border-radius:10px;padding:0 11px;background:var(--white);color:var(--ink);font:inherit;font-size:13px}
+
+/* "Where we stand" — the core committee's one-screen picture of the event. */
+.overviewEvents{display:grid;gap:10px;margin-bottom:6px}
+.overviewEvent{border:1px solid var(--line);border-radius:14px;background:var(--white);box-shadow:0 5px 14px rgba(8,35,59,.035);overflow:hidden}
+.overviewEvent>header{display:flex;justify-content:space-between;align-items:baseline;gap:10px;padding:12px 14px;border-bottom:1px solid var(--line)}
+.overviewEvent>header b{color:var(--navy-900);font-size:14px}
+.overviewEvent>header span{color:var(--muted);font-size:12px;font-weight:800}
+.overviewNumbers{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;padding:12px 14px}
+.overviewNumbers span{display:grid;gap:2px}
+.overviewNumbers b{font:800 20px/1 Georgia,serif;color:var(--navy-900)}
+.overviewNumbers small{color:var(--muted);font-size:11px;line-height:1.25}
+.overviewBars{display:grid;gap:9px}
+.overviewBar{display:grid;grid-template-columns:minmax(0,1fr) 90px auto;align-items:center;gap:10px}
+.overviewBar>span{color:var(--navy-900);font-size:12px;font-weight:750;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.overviewBar>div{height:8px;border-radius:20px;background:#e9eef1;overflow:hidden}
+.overviewBar>div>i{display:block;height:100%;border-radius:20px;background:var(--gold-500)}
+.overviewBar>b{color:var(--navy-800);font-size:12px;font-variant-numeric:tabular-nums}
+.overviewGaps{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.overviewGaps span{display:grid;gap:3px;border:1px solid var(--line);border-radius:12px;padding:11px;background:var(--white)}
+.overviewGaps b{font:800 21px/1 Georgia,serif;color:var(--navy-900)}
+.overviewGaps small{color:var(--muted);font-size:11px;line-height:1.3}
+.overviewList{display:grid;gap:8px}
+.overviewList article{display:grid;gap:3px;border-left:3px solid var(--danger);border-radius:0 11px 11px 0;padding:10px 12px;background:#fff6f5}
+.overviewList b{color:var(--navy-900);font-size:13px}
+.overviewList small{color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.08em;font-weight:850}
+.overviewList span{color:var(--ink);font-size:12px;line-height:1.4}
+.overviewActivity{display:grid;gap:7px}
+.overviewActivity article{display:grid;grid-template-columns:minmax(0,auto) minmax(0,1fr) auto;align-items:baseline;gap:8px;padding:9px 11px;border:1px solid var(--line);border-radius:11px;background:var(--white)}
+.overviewActivity b{color:var(--navy-900);font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:110px}
+.overviewActivity span{color:var(--ink);font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.overviewActivity small{color:var(--muted);font-size:11px;white-space:nowrap}
+@media(max-width:380px){.overviewNumbers,.overviewGaps{grid-template-columns:repeat(2,1fr)}.overviewActivity article{grid-template-columns:1fr;gap:2px}.overviewActivity b{max-width:none}}

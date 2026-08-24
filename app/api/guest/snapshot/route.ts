@@ -1,6 +1,7 @@
 import { asc, eq } from "drizzle-orm";
 import { getDb } from "../../../../db";
 import { groupAgendaItems, guestCategories, guestEventInvitations, guestGroups, guestStays, guests, hotels, people, travelPlanCategories, travelPlans, travelStops } from "../../../../db/schema";
+import { coordinatedGroupIds } from "../../../../src/server/permissions";
 import { authenticateRequest } from "../../../../src/server/session";
 import { flushGoogleSheetOutbox, googleSheetsConfigured } from "../../../../src/server/google-sheets";
 import { waitUntil } from "cloudflare:workers";
@@ -25,6 +26,13 @@ export async function GET(request: Request) {
     db.select({ id: people.id, fullName: people.fullName }).from(people).where(eq(people.active, true)),
   ]);
 
+  // Contact details are the most sensitive thing here and there are ~1,855 of
+  // them. A coordinator sees names and groups for everyone so the directory
+  // still works, but phone numbers and emails only for the guests they
+  // actually look after. The core committee sees everything.
+  const mineOnly = user.isCore ? null : await coordinatedGroupIds(user.personId);
+  const maySeeContact = (groupId: string | null) => !mineOnly || Boolean(groupId && mineOnly.has(groupId));
+
   const personName = new Map(peopleRows.map(person => [person.id, person.fullName]));
   const groupName = new Map(groupRows.map(group => [group.id, group.name]));
   const invitationsByGuest = groupBy(invitationRows, row => row.guestId);
@@ -40,7 +48,15 @@ export async function GET(request: Request) {
     groups: groupRows.map(group => ({ id: group.id, name: group.name, primaryPersonId: group.primaryPersonId ?? undefined, secondaryPersonId: group.secondaryPersonId ?? undefined, primaryName: group.primaryPersonId ? personName.get(group.primaryPersonId) : undefined, secondaryName: group.secondaryPersonId ? personName.get(group.secondaryPersonId) : undefined, guestCount: guestCountByGroup.get(group.id) ?? 0, agenda: (agendaByGroup.get(group.id) ?? []).map(item => ({ id: item.id, date: item.agendaDate, time: item.agendaTime, title: item.title, details: item.details || undefined })) })),
     guests: guestRows.map(guest => {
       const stay = stayByGuest.get(guest.id);
-      return { ...guest, groupId: guest.groupId ?? undefined, groupName: guest.groupId ? groupName.get(guest.groupId) : undefined, phone: guest.phone ?? undefined, email: guest.email ?? undefined, invitations: invitationsByGuest.get(guest.id) ?? [], stay: stay ? { hotelId: stay.hotelId, hotelName: stay.hotelName, roomNumber: stay.roomNumber, hotelGone: !stay.hotelActive || undefined } : undefined };
+      const visible = maySeeContact(guest.groupId);
+      return { ...guest, groupId: guest.groupId ?? undefined, groupName: guest.groupId ? groupName.get(guest.groupId) : undefined,
+        phone: visible ? guest.phone ?? undefined : undefined,
+        email: visible ? guest.email ?? undefined : undefined,
+        // The count still has to be honest for anyone reviewing readiness, so
+        // say whether a contact exists even when the value is withheld.
+        hasContact: Boolean(guest.phone || guest.email),
+        contactHidden: visible ? undefined : true,
+        invitations: invitationsByGuest.get(guest.id) ?? [], stay: stay ? { hotelId: stay.hotelId, hotelName: stay.hotelName, roomNumber: stay.roomNumber, hotelGone: !stay.hotelActive || undefined } : undefined };
     }),
     travelPlans: planRows.map(plan => ({ id: plan.id, name: plan.name, event: plan.event, date: plan.travelDate, mode: plan.mode, routeName: plan.routeName, vehicleNumber: plan.vehicleNumber ?? undefined, driverName: plan.driverName ?? undefined, driverPhone: plan.driverPhone ?? undefined, conductorName: plan.conductorName ?? undefined, conductorPhone: plan.conductorPhone ?? undefined, categories: categoriesByPlan.get(plan.id) ?? [], stops: (stopsByPlan.get(plan.id) ?? []).map(stop => ({ id: stop.id, order: stop.stopOrder, time: stop.stopTime, place: stop.place })) })),
     hotels: hotelRows,

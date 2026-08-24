@@ -49,6 +49,7 @@ export default function EventOperationsApp() {
   const [team, setTeam] = useState<EventTeamMember[]>([]);
   const [budgetSheet, setBudgetSheet] = useState<EventBudgetEntry | "new" | null>(null);
   const [pinsOpen, setPinsOpen] = useState(false);
+  const [overviewOpen, setOverviewOpen] = useState(false);
   const [dataNonce, setDataNonce] = useState(0);
   const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
   const [selectedUpdateId, setSelectedUpdateId] = useState<string | null>(null);
@@ -84,7 +85,7 @@ export default function EventOperationsApp() {
       if (hiddenAt === null || !userRef.current) return;
       const awayMs = Date.now() - hiddenAt;
       if (awayMs >= RESUME_REFRESH_AFTER_MS && (screenRef.current === "event" || screenRef.current === "guest")) {
-        setSelectedJobId(null); setSelectedUpdateId(null); setBudgetSheet(null); setPinsOpen(false);
+        setSelectedJobId(null); setSelectedUpdateId(null); setBudgetSheet(null); setPinsOpen(false); setOverviewOpen(false);
         setDataNonce(value => value + 1);
       }
     }
@@ -110,7 +111,7 @@ export default function EventOperationsApp() {
       if (sheetDepth > 0) return;
       const nextSection = typeof state.sectionId === "string" ? state.sectionId : null;
       const viewChanged = (state.screen && state.screen !== screenRef.current) || (state.eventTab && state.eventTab !== tabRef.current) || nextSection !== sectionRef.current;
-      setSelectedJobId(null); setSelectedUpdateId(null); setBudgetSheet(null); setPinsOpen(false); setEventSearchOpen(false); setSelectedSectionId(nextSection);
+      setSelectedJobId(null); setSelectedUpdateId(null); setBudgetSheet(null); setPinsOpen(false); setOverviewOpen(false); setEventSearchOpen(false); setSelectedSectionId(nextSection);
       if (viewChanged) window.scrollTo(0, 0);
     }
     window.addEventListener("popstate", restoreFromHistory);
@@ -123,7 +124,7 @@ export default function EventOperationsApp() {
    *  does not history.back() over the entry we just wrote. */
   function anySheetLayerOpen() {
     const depth = (window.history.state as { yilSheet?: boolean | number } | null)?.yilSheet;
-    return Boolean(selectedJobId) || Boolean(budgetSheet) || pinsOpen || eventSearchOpen || (typeof depth === "number" ? depth > 0 : Boolean(depth));
+    return Boolean(selectedJobId) || Boolean(budgetSheet) || pinsOpen || overviewOpen || eventSearchOpen || (typeof depth === "number" ? depth > 0 : Boolean(depth));
   }
 
   function navigateScreen(next: Screen, replace = false) {
@@ -134,7 +135,7 @@ export default function EventOperationsApp() {
     if (closingSheet) delete state.yilSheet;
     if (replace || closingSheet) window.history.replaceState(state, ""); else window.history.pushState(state, "");
     if (next === "event" || next === "guest") rememberWorkArea(next);
-    setSelectedJobId(null); setSelectedUpdateId(null); setSelectedSectionId(null); setBudgetSheet(null); setPinsOpen(false); setEventSearchOpen(false); setScreen(next); window.scrollTo(0, 0);
+    setSelectedJobId(null); setSelectedUpdateId(null); setSelectedSectionId(null); setBudgetSheet(null); setPinsOpen(false); setOverviewOpen(false); setEventSearchOpen(false); setScreen(next); window.scrollTo(0, 0);
   }
 
   function openSectionWithHistory(id: string) {
@@ -142,7 +143,7 @@ export default function EventOperationsApp() {
     const state: Record<string, unknown> = { ...(window.history.state ?? {}), yilApp: true, screen: "event" as const, eventTab: tab, sectionId: id };
     if (closingSheet) delete state.yilSheet;
     if (closingSheet) window.history.replaceState(state, ""); else window.history.pushState(state, "");
-    setSelectedJobId(null); setSelectedUpdateId(null); setBudgetSheet(null); setPinsOpen(false); setEventSearchOpen(false); setSelectedSectionId(id); window.scrollTo(0, 0);
+    setSelectedJobId(null); setSelectedUpdateId(null); setBudgetSheet(null); setPinsOpen(false); setOverviewOpen(false); setEventSearchOpen(false); setSelectedSectionId(id); window.scrollTo(0, 0);
   }
 
   function navigateEventTab(next: EventTab) {
@@ -151,7 +152,7 @@ export default function EventOperationsApp() {
     delete state.sectionId;
     if (closingSheet) delete state.yilSheet;
     if (closingSheet) window.history.replaceState(state, ""); else window.history.pushState(state, "");
-    setSelectedSectionId(null); setEventSearchOpen(false); setSelectedJobId(null); setSelectedUpdateId(null); setBudgetSheet(null); setPinsOpen(false); setTab(next); window.scrollTo(0, 0);
+    setSelectedSectionId(null); setEventSearchOpen(false); setSelectedJobId(null); setSelectedUpdateId(null); setBudgetSheet(null); setPinsOpen(false); setOverviewOpen(false); setTab(next); window.scrollTo(0, 0);
   }
 
   useEffect(() => {
@@ -317,7 +318,7 @@ export default function EventOperationsApp() {
   if (screen === "guest") return <GuestCoordinationApp user={user} team={team} back={() => navigateScreen("choose")} signOut={signOut} openSyncOnMount={guestSyncIntent} consumeSyncIntent={() => setGuestSyncIntent(false)} />;
 
   return <main className="eventApp">
-    <EventHeader tab={tab} user={user} back={() => navigateScreen("choose")} signOut={signOut} search={() => setEventSearchOpen(value => !value)} openPins={() => setPinsOpen(true)} />
+    <EventHeader tab={tab} user={user} back={() => navigateScreen("choose")} signOut={signOut} search={() => setEventSearchOpen(value => !value)} openPins={() => setPinsOpen(true)} openOverview={() => setOverviewOpen(true)} />
     <CommitteeStrip team={team} selected={ownerFilter} select={setOwnerFilter} />
     <div className="eventBody">
       {eventSearchOpen && <EventSearch value={eventQuery} change={setEventQuery} close={() => { setEventQuery(""); setEventSearchOpen(false); }} />}
@@ -336,6 +337,7 @@ export default function EventOperationsApp() {
     {selectedJob && <JobSheet job={selectedJob} user={user} sectionHeading={sections.find(section => section.id === selectedJob.sectionId)?.heading} focusUpdateId={selectedUpdateId} close={() => { setSelectedJobId(null); setSelectedUpdateId(null); }} save={saveJob} editUpdate={editUpdate} withdrawUpdate={withdrawUpdate} />}
     {budgetSheet && <BudgetSheet jobs={jobs} entry={budgetSheet === "new" ? undefined : budgetSheet} close={() => setBudgetSheet(null)} save={saveBudget} />}
     {pinsOpen && <PinsSheet preview={user.id === previewUser.id} close={() => setPinsOpen(false)} notify={setToast} />}
+    {overviewOpen && <OverviewSheet close={() => setOverviewOpen(false)} notify={setToast} />}
     {syncStatus && (syncStatus.pendingApproval || syncStatus.needsFixing) && <div className="updateBanner syncBanner">
       <span><b>{syncStatus.pendingApproval ? "Master Sheet removals need your OK" : "The Master Sheet needs fixing"}</b><small>{syncStatus.latestSummary ?? "Open the sync screen to review."}</small></span>
       <button onClick={() => { setGuestSyncIntent(true); navigateScreen("guest"); }}>Review</button>
@@ -383,9 +385,9 @@ function WorkAreaScreen({ user, openEvent, openGuest, signOut }: { user: EventUs
   return <main className="centredScreen"><section className="areaCard"><header><span className="miniMark">YIL <b>50</b></span><button onClick={signOut}>Sign out</button></header><p className="eyebrow">Signed in as {user.fullName}</p><h1>Where would you like to start?</h1><p>Choose one work area. You can switch later without signing in again.</p><div className="areaChoices"><button onClick={openEvent}><span className="areaIcon">◈</span><strong>Event Work</strong><small>Planning, updates, Malur, Taj and budget</small><i>›</i></button><button onClick={openGuest}><span className="areaIcon">◉</span><strong>Guest coordination</strong><small>Mine, invitations, guests, travel and stays</small><i>›</i></button></div></section></main>;
 }
 
-function EventHeader({ tab, user, back, signOut, search, openPins }: { tab: EventTab; user: EventUser; back: () => void; signOut: () => void; search: () => void; openPins: () => void }) {
+function EventHeader({ tab, user, back, signOut, search, openPins, openOverview }: { tab: EventTab; user: EventUser; back: () => void; signOut: () => void; search: () => void; openPins: () => void; openOverview: () => void }) {
   const title = { home: "Golden Jubilee 2026", updates: "Team updates", malur: "YIL Malur", taj: "Taj West End", budget: "Event budget" }[tab];
-  return <header className="eventHeader"><div className="headerBrand"><span>YIL <b>50</b></span><div><strong>{title}</strong><small>{tab === "home" ? "Planning activity" : "Event Work"}</small></div></div><div className="headerActions"><button className="headerSearch" aria-label="Search Event Work" onClick={search}>⌕</button><details className="userMenu"><summary aria-label="Open account menu"><span>{user.initials}</span></summary><div><b>{user.fullName}</b><small>{user.responsibility}</small>{user.isCore && <button onClick={openPins}>Sign-in PINs</button>}<button onClick={back}>Switch work area</button><button onClick={signOut}>Sign out</button></div></details></div></header>;
+  return <header className="eventHeader"><div className="headerBrand"><span>YIL <b>50</b></span><div><strong>{title}</strong><small>{tab === "home" ? "Planning activity" : "Event Work"}</small></div></div><div className="headerActions"><button className="headerSearch" aria-label="Search Event Work" onClick={search}>⌕</button><details className="userMenu"><summary aria-label="Open account menu"><span>{user.initials}</span></summary><div><b>{user.fullName}</b><small>{user.responsibility}</small>{user.isCore && <button onClick={openOverview}>Where we stand</button>}{user.isCore && <button onClick={openPins}>Sign-in PINs</button>}<button onClick={back}>Switch work area</button><button onClick={signOut}>Sign out</button></div></details></div></header>;
 }
 
 function CommitteeStrip({ team, selected, select }: { team: EventTeamMember[]; selected: string | null; select: (id: string | null) => void }) {
@@ -525,6 +527,87 @@ function BudgetView({ entries, add, edit }: { entries: EventBudgetEntry[]; add: 
   const total = (status: string) => entries.filter(entry => entry.status === status).reduce((sum, entry) => sum + entry.amountPaise, 0) / 100;
   const grouped = entries.reduce<Record<string, EventBudgetEntry[]>>((result, entry) => { (result[entry.category] ||= []).push(entry); return result; }, {});
   return <><section className="guestHero staysHero"><div><p className="eyebrow">Core committee only</p><h1>Event budget</h1><p>Every planned, approved and paid amount for both evenings, entered here by the committee.</p></div></section><section className="metricGrid budgetMetrics"><article><b>₹{total("planned").toLocaleString("en-IN")}</b><span>planned</span></article><article><b>₹{total("approved").toLocaleString("en-IN")}</b><span>approved</span></article><article><b>₹{total("paid").toLocaleString("en-IN")}</b><span>paid</span></article></section><div className="sectionTitle prototypeSectionTitle"><div><p className="eyebrow">Budget activity</p><h2>Budget lines</h2></div><button className="smallAction" onClick={add}>＋ Add entry</button></div>{entries.length ? Object.entries(grouped).map(([category, items]) => <section className="updateDay budgetGroup" key={category}><header><b>{category}</b><span>{items.length}</span></header><div className="budgetList">{items.map(item => <article key={item.id}><button className="budgetRowTap" onClick={() => edit(item)} aria-label={`Edit ${item.description || item.category}`}><span><b>{item.description || item.category}</b><small>{item.vendor || "No vendor yet"}</small></span><strong>₹{(item.amountPaise / 100).toLocaleString("en-IN")}</strong><em className={`budgetStatus ${item.status}`}>{item.status}</em></button></article>)}</div></section>) : <div className="emptyState">No budget lines yet. Tap ＋ Add entry to record the first amount.</div>}<SourceNote /></>;
+}
+
+type OverviewData = {
+  work: { total: number; complete: number; organised: number; blocked: { title: string; note: string; section: string }[]; sections: { heading: string; total: number; complete: number }[] };
+  guests: { total: number; unreachable: number; withRoom: number; malur: EventRollup; taj: EventRollup };
+  travel: { plans: number; ready: number; gaps: { name: string; event: string; missing: string[] }[] };
+  sync: { outcome: string | null; summary: string | null; at: string | null; pendingApproval: boolean; needsFixing: boolean; issues: string[] } | null;
+  activity: { at: string; who: string; what: string }[];
+};
+type EventRollup = { name: string; date: string; daysToGo: number; invited: number; awaitingReply: number; attending: number; unableToAttend: number; notSentYet: number };
+
+/** The whole event on one screen: where the work stands, who has replied,
+ *  what still has no vehicle or room, and what changed most recently. It only
+ *  gathers what other screens already own, so it can never disagree with them. */
+function OverviewSheet({ close, notify }: { close: () => void; notify: (message: string) => void }) {
+  useSheetHistory(close);
+  const [data, setData] = useState<OverviewData | null>(null);
+  const [failed, setFailed] = useState(false);
+  useEffect(() => {
+    let active = true;
+    fetch("/api/overview", { cache: "no-store" }).then(async response => {
+      const payload = await response.json() as OverviewData & { error?: string };
+      if (!response.ok) throw new Error(payload.error || "The overview could not be loaded.");
+      if (active) setData(payload);
+    }).catch(error => { if (active) { setFailed(true); notify(error instanceof Error ? error.message : "The overview could not be loaded."); } });
+    return () => { active = false; };
+  }, [notify]);
+
+  const eventBlock = (rollup: EventRollup) => <article key={rollup.name} className="overviewEvent">
+    <header><b>{rollup.name}</b><span>{rollup.daysToGo > 0 ? `${rollup.daysToGo} days to go` : rollup.daysToGo === 0 ? "Today" : "Done"}</span></header>
+    <div className="overviewNumbers">
+      <span><b>{rollup.invited}</b><small>invited</small></span>
+      <span><b>{rollup.attending}</b><small>attending</small></span>
+      <span><b>{rollup.awaitingReply}</b><small>awaiting reply</small></span>
+      <span><b>{rollup.unableToAttend}</b><small>cannot come</small></span>
+    </div>
+  </article>;
+
+  return <div className="sheetLayer" role="presentation"><button className="sheetShade" aria-label="Close overview" onClick={close} /><section className="jobSheet" role="dialog" aria-modal="true" aria-labelledby="overview-title"><header><button className="sheetBack" onClick={close}>&lsaquo; Back</button><div><p className="eyebrow">Core committee</p><h2 id="overview-title">Where we stand</h2></div><button aria-label="Close" onClick={close}>&times;</button></header><div className="sheetBody">
+    {failed ? <div className="quietState"><b>The overview could not be loaded</b><span>Try again in a moment.</span></div>
+      : !data ? <div className="quietState"><b>Gathering the whole picture&hellip;</b></div>
+      : <>
+        {(data.sync?.needsFixing || data.sync?.pendingApproval) && <div className="inlineWarning">{data.sync.needsFixing ? "The Master Sheet needs fixing before new changes can arrive." : "Master Sheet removals are waiting for a core member to approve them."}{data.sync.summary ? ` ${data.sync.summary}` : ""}</div>}
+
+        <div className="overviewEvents">{[data.guests.malur, data.guests.taj].map(eventBlock)}</div>
+
+        <div className="sectionTitle prototypeSectionTitle compact"><div><p className="eyebrow">Event work</p><h2>{data.work.complete} of {data.work.total} finished</h2></div><span>{data.work.organised} organised</span></div>
+        <div className="overviewBars">{data.work.sections.map(section => <div key={section.heading} className="overviewBar">
+          <span>{section.heading}</span>
+          <div><i style={{ width: `${section.total ? Math.round((section.complete / section.total) * 100) : 0}%` }} /></div>
+          <b>{section.complete}/{section.total}</b>
+        </div>)}</div>
+
+        {data.work.blocked.length > 0 && <><div className="sectionTitle prototypeSectionTitle compact"><div><p className="eyebrow">Held up</p><h2>{data.work.blocked.length} blocked</h2></div></div>
+          <div className="overviewList">{data.work.blocked.map((item, index) => <article key={index}><b>{item.title}</b><small>{item.section}</small><span>{item.note}</span></article>)}</div></>}
+
+        <div className="sectionTitle prototypeSectionTitle compact"><div><p className="eyebrow">Still to arrange</p><h2>Gaps</h2></div></div>
+        <div className="overviewGaps">
+          <span><b>{data.travel.plans - data.travel.ready}</b><small>vehicles missing details</small></span>
+          <span><b>{data.guests.unreachable}</b><small>guests we cannot reach</small></span>
+          <span><b>{data.guests.withRoom}</b><small>guests have a room</small></span>
+        </div>
+        {data.travel.gaps.length > 0 && <div className="overviewList">{data.travel.gaps.map((gap, index) => <article key={index}><b>{gap.name}</b><small>{gap.event === "malur" ? "YIL Malur" : "Taj West End"}</small><span>Still needs {gap.missing.join(", ")}</span></article>)}</div>}
+
+        <div className="sectionTitle prototypeSectionTitle compact"><div><p className="eyebrow">Most recent first</p><h2>What just happened</h2></div></div>
+        {data.activity.length ? <div className="overviewActivity">{data.activity.map((item, index) => <article key={index}><b>{item.who}</b><span>{item.what}</span><small>{friendlyMoment(item.at)}</small></article>)}</div>
+          : <div className="quietState"><b>Nothing recorded yet</b><span>Every change anybody makes will appear here.</span></div>}
+      </>}
+  </div></section></div>;
+}
+
+/** "14 minutes ago" reads faster than a timestamp when you are scanning. */
+function friendlyMoment(at: string) {
+  const when = new Date(at.includes("T") ? at : at.replace(" ", "T") + "Z");
+  const minutes = Math.round((Date.now() - when.getTime()) / 60000);
+  if (!Number.isFinite(minutes)) return at;
+  if (minutes < 1) return "just now";
+  if (minutes < 60) return `${minutes} minute${minutes === 1 ? "" : "s"} ago`;
+  const hours = Math.round(minutes / 60);
+  if (hours < 24) return `${hours} hour${hours === 1 ? "" : "s"} ago`;
+  return when.toLocaleDateString("en-IN", { day: "numeric", month: "short" });
 }
 
 type PersonPinRow = { id: string; initials: string; fullName: string; responsibility: string; employeeNumber: string; isCore: boolean; hasPin: boolean; mustChangePin: boolean; lockedOut: boolean };

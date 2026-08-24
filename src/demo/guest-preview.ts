@@ -14,6 +14,10 @@ export type GuestRecord = {
   preferredLanguage: GuestLanguage;
   phone?: string;
   email?: string;
+  /** True when the guest can be reached even if this coordinator may not see
+   *  the number itself — keeps readiness counts honest without exposing it. */
+  hasContact?: boolean;
+  contactHidden?: boolean;
   invitations: GuestInvitation[];
   stay?: { hotelId: string; hotelName: string; roomNumber: string; hotelGone?: boolean };
 };
